@@ -31,7 +31,9 @@ async fn main(
     let _currencies = cs.get_currencies().await?;
     let state = web::Data::new(models::AppState::new(storage));
     let config = move |cfg: &mut ServiceConfig| {
-        cfg.service(hello_world).app_data(state);
+        cfg.service(hello_world)
+            .service(currency_service::currencies)
+            .app_data(state);
     };
 
     Ok(config.into())

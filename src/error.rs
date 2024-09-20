@@ -1,9 +1,11 @@
 use std::{error::Error, fmt::Display};
 
-#[derive(Debug)]
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
 pub enum AppError {
-    DbError(mongodb::error::Error),
-    ReqwestError(reqwest::Error),
+    DbError(String),
+    ReqwestError(String),
 }
 
 pub type Result<T> = core::result::Result<T, AppError>;
@@ -15,12 +17,12 @@ impl Display for AppError {
 impl Error for AppError {}
 impl From<mongodb::error::Error> for AppError {
     fn from(value: mongodb::error::Error) -> Self {
-        Self::DbError(value)
+        Self::DbError(value.to_string())
     }
 }
 impl From<reqwest::Error> for AppError {
     fn from(value: reqwest::Error) -> Self {
-        Self::ReqwestError(value)
+        Self::ReqwestError(value.to_string())
     }
 }
 impl From<AppError> for shuttle_runtime::Error {

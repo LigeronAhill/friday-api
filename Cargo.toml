@@ -1,0 +1,18 @@
+[package]
+name = "friday-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4.9.0"
+chrono = "0.4.38"
+futures = "0.3.30"
+bson = {version = "2.13.0", features = ["chrono-0_4"]}
+mongodb = "3.1.0"
+reqwest = {version = "0.12.7", features = ["gzip", "json"]}
+serde = { version = "1.0.210", features = ["derive"] }
+shuttle-actix-web = "0.47.0"
+shuttle-runtime = "0.47.0"
+tokio = "1.40.0"
+tracing = "0.1.40"
+async-trait = "0.1.82"

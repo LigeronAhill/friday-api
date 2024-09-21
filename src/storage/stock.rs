@@ -1,8 +1,11 @@
+use std::collections::HashSet;
+
 use bson::oid::ObjectId;
 use bson::{doc, DateTime};
 use futures::TryStreamExt;
 use mongodb::Collection;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::stock_service::{StockItem, StockStorage};
 use crate::Result;
@@ -13,7 +16,16 @@ use super::{Storage, STOCK_COLLECTION};
 impl StockStorage for Storage {
     async fn update_stock(&self, items: Vec<StockItem>) -> Result<()> {
         let collection: Collection<StockItemDTO> = self.database.collection(STOCK_COLLECTION);
-        collection.drop().await?;
+        let mut set = HashSet::new();
+        items.iter().map(|i| i.supplier.clone()).for_each(|s| {
+            set.insert(s);
+        });
+        for supplier in set {
+            let filter = doc! {"supplier": &supplier};
+            let dr = collection.delete_many(filter).await?;
+            let count = dr.deleted_count;
+            info!("Удалила {count} позиций из остатков '{supplier}'");
+        }
         let converted = items
             .into_iter()
             .map(StockItemDTO::from)

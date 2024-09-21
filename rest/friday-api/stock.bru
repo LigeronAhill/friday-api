@@ -5,12 +5,12 @@ meta {
 }
 
 get {
-  url: https://friday-api.shuttleapp.rs/api/stock
+  url: 127.0.0.1:8000/api/stock?limit=10&offset=12
   body: none
   auth: none
 }
 
 params:query {
-  ~limit: 10
-  ~offset: 12
+  limit: 10
+  offset: 12
 }

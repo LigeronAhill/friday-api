@@ -8,6 +8,7 @@ mod error;
 pub use error::{AppError, Result};
 use tracing::info;
 mod models;
+mod stock_service;
 mod storage;
 
 #[get("/")]
@@ -30,15 +31,20 @@ async fn main(
         .await
         .expect("Error initializing mongo DB");
     info!("База данных готова к использованию");
-    let state = web::Data::new(models::AppState::new(storage.clone()));
+    let state = web::Data::new(models::AppState::new(storage.clone(), storage.clone()));
     info!("Инициализирую службу валют");
     let cs = currency_service::CurrencyService::new(storage.clone());
     info!("Служба валют готова к использованию, запускаю");
     tokio::spawn(async move { cs.run().await });
+    info!("Инициализирую службу остатков");
+    let ss = stock_service::StockService::new(secrets, storage.clone())?;
+    info!("Служба остатков готова к использованию, запускаю");
+    tokio::spawn(async move { ss.run().await });
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(hello_world)
             .service(currency_service::currencies)
             .service(currency_service::monthly_currencies)
+            .service(stock_service::stock)
             .app_data(state);
     };
 

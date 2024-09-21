@@ -1,9 +1,12 @@
 mod currency;
+mod stock;
 use std::sync::Arc;
 
 use crate::Result;
 const DATABASE: &str = "friday";
 pub const CURRENCY_COLLECTION: &str = "currencies";
+pub const STOCK_COLLECTION: &str = "stock";
+
 #[derive(Clone)]
 pub struct Storage {
     database: mongodb::Database,

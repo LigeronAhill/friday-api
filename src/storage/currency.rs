@@ -78,12 +78,12 @@ impl CurrencyStorage for Storage {
     /// получает курсы валют за месяц из MongoDB
     async fn get_monthly_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>> {
         let collection: Collection<CurrencyDTO> = self.database.collection("currencies");
-        let mut cursor = collection.find(doc! {}).await?;
+        let mut cursor = collection.find(doc! {}).sort(doc! {"updated": -1}).await?;
         let mut result: Vec<Currency> = Vec::new();
         while let Some(cur) = cursor.try_next().await? {
             result.push(cur.into())
         }
-        result.sort_by(|a, b| a.updated.cmp(&b.updated));
+        // result.sort_by(|a, b| a.updated.cmp(&b.updated));
         Ok(result)
     }
 }

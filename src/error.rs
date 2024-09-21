@@ -6,6 +6,7 @@ use serde::Serialize;
 pub enum AppError {
     DbError(String),
     ReqwestError(String),
+    MailError(String),
 }
 
 pub type Result<T> = core::result::Result<T, AppError>;
@@ -31,5 +32,10 @@ impl From<AppError> for shuttle_runtime::Error {
             AppError::DbError(e) => shuttle_runtime::Error::Database(e.to_string()),
             _ => shuttle_runtime::Error::Custom(value.into()),
         }
+    }
+}
+impl From<imap::error::Error> for AppError {
+    fn from(value: imap::error::Error) -> Self {
+        Self::MailError(value.to_string())
     }
 }

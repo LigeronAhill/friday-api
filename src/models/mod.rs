@@ -1,11 +1,17 @@
 mod currency;
+use std::sync::Arc;
+
 pub use currency::*;
 
+use crate::currency_service::CurrencyStorage;
+/// Общие данные для обработчиков
+#[derive(Clone)]
 pub struct AppState {
-    pub storage: crate::storage::Storage,
+    pub currency_storage: Arc<dyn CurrencyStorage>,
 }
 impl AppState {
-    pub fn new(storage: crate::storage::Storage) -> Self {
-        Self { storage }
+    /// Создать новый экземпляр общих данных
+    pub fn new(currency_storage: Arc<dyn CurrencyStorage>) -> Self {
+        Self { currency_storage }
     }
 }

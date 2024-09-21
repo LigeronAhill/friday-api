@@ -1,4 +1,6 @@
 /target
+target
 .shuttle-storage
 Secrets*.toml
 .ignore
+

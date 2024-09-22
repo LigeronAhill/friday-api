@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
+use bson::doc;
 use bson::oid::ObjectId;
-use bson::{doc, DateTime};
 use futures::TryStreamExt;
 use mongodb::Collection;
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ impl From<StockItem> for StockItemDTO {
             supplier: value.supplier,
             name: value.name,
             stock: value.stock,
-            updated: DateTime::now(),
+            updated: value.updated.into(),
         }
     }
 }

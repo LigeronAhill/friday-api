@@ -1,4 +1,6 @@
+use chrono::TimeZone;
 use mail_parser::MimeHeaders;
+use tracing::error;
 
 use crate::Result;
 
@@ -53,6 +55,7 @@ impl MailClient {
         self.from = msg_count;
         let mut m = std::collections::HashMap::new();
         for fetch in fetches.iter() {
+            let fetch_date = fetch.internal_date().map(|d| d.to_utc());
             if let Some(body) = fetch.body() {
                 if let Some(parsed) = mail_parser::MessageParser::default().parse(body) {
                     let sender = parsed
@@ -77,14 +80,39 @@ impl MailClient {
                             })
                             .collect::<Vec<_>>();
                         if !attachments.is_empty() {
-                            let received = if let Some(r) = parsed.date().and_then(|d| {
-                                <chrono::DateTime<chrono::Utc> as std::str::FromStr>::from_str(
-                                    &d.to_rfc3339(),
-                                )
-                                .ok()
-                            }) {
+                            let received_date =
+                                parsed.received().and_then(|r| r.date()).and_then(|d| {
+                                    chrono::Utc
+                                        .with_ymd_and_hms(
+                                            d.year as i32,
+                                            d.month as u32,
+                                            d.day as u32,
+                                            d.hour as u32,
+                                            d.minute as u32,
+                                            d.second as u32,
+                                        )
+                                        .single()
+                                });
+                            let date = parsed.date().and_then(|d| {
+                                chrono::Utc
+                                    .with_ymd_and_hms(
+                                        d.year as i32,
+                                        d.month as u32,
+                                        d.day as u32,
+                                        d.hour as u32,
+                                        d.minute as u32,
+                                        d.second as u32,
+                                    )
+                                    .single()
+                            });
+                            let received = if let Some(r) = date {
                                 r
+                            } else if let Some(d) = received_date {
+                                d
+                            } else if let Some(d) = fetch_date {
+                                d
                             } else {
+                                error!("Не получилось прочитать дату письма {supplier}");
                                 chrono::Utc::now()
                             };
                             m.insert(supplier.to_string(), (attachments, received));

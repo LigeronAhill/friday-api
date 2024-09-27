@@ -15,7 +15,7 @@ mod storage;
 async fn hello_world() -> &'static str {
     "Hello World!"
 }
-// TODO: mail parser
+// TODO: auth -> JWT/Clerk/Cookie ???
 // TODO: price parser
 
 #[shuttle_runtime::main]

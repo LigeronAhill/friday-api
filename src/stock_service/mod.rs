@@ -18,6 +18,7 @@ pub type FetchMap =
 pub trait StockStorage: Send + Sync {
     async fn update_stock(&self, items: Vec<StockItem>) -> Result<()>;
     async fn get_stock(&self, limit: i64, offset: u64) -> Result<Vec<StockItem>>;
+    async fn find_stock(&self, search: String) -> Result<Vec<StockItem>>;
 }
 pub struct StockService {
     mail_client: MailClient,
@@ -117,19 +118,49 @@ pub struct StockItem {
 struct Query {
     limit: Option<String>,
     offset: Option<String>,
+    search: Option<String>,
 }
 
 #[get("/api/stock")]
 pub async fn stock(state: web::Data<AppState>, query: Option<web::Query<Query>>) -> HttpResponse {
-    let (limit, offset) = match query {
-        Some(q) => (
-            q.limit.clone().and_then(|l| l.parse().ok()).unwrap_or(20),
-            q.offset.clone().and_then(|o| o.parse().ok()).unwrap_or(0),
-        ),
-        None => (20, 0),
-    };
-    match state.stock_storage.get_stock(limit, offset).await {
-        Ok(r) => HttpResponse::Ok().json(r),
-        Err(e) => HttpResponse::InternalServerError().json(e),
+    match query {
+        Some(q) => {
+            if let Some(search) = q.search.to_owned() {
+                match state.stock_storage.find_stock(search).await {
+                    Ok(r) => HttpResponse::Ok().json(r),
+                    Err(e) => HttpResponse::InternalServerError().json(e),
+                }
+            } else if let Some(limit) = q.limit.to_owned().and_then(|l| l.parse().ok()) {
+                let offset = q
+                    .offset
+                    .to_owned()
+                    .and_then(|o| o.parse().ok())
+                    .unwrap_or_default();
+                match state.stock_storage.get_stock(limit, offset).await {
+                    Ok(r) => HttpResponse::Ok().json(r),
+                    Err(e) => HttpResponse::InternalServerError().json(e),
+                }
+            } else {
+                match state.stock_storage.get_stock(100, 0).await {
+                    Ok(r) => HttpResponse::Ok().json(r),
+                    Err(e) => HttpResponse::InternalServerError().json(e),
+                }
+            }
+        }
+        None => match state.stock_storage.get_stock(100, 0).await {
+            Ok(r) => HttpResponse::Ok().json(r),
+            Err(e) => HttpResponse::InternalServerError().json(e),
+        },
     }
+    // let (limit, offset) = match query {
+    //     Some(q) => (
+    //         q.limit.clone().and_then(|l| l.parse().ok()).unwrap_or(20),
+    //         q.offset.clone().and_then(|o| o.parse().ok()).unwrap_or(0),
+    //     ),
+    //     None => (20, 0),
+    // };
+    // match state.stock_storage.get_stock(limit, offset).await {
+    //     Ok(r) => HttpResponse::Ok().json(r),
+    //     Err(e) => HttpResponse::InternalServerError().json(e),
+    // }
 }

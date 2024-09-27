@@ -44,6 +44,17 @@ impl StockStorage for Storage {
         }
         Ok(result)
     }
+    async fn find_stock(&self, search: String) -> Result<Vec<StockItem>> {
+        let collection: Collection<StockItemDTO> = self.database.collection(STOCK_COLLECTION);
+        let mut cursor = collection
+            .find(doc! {"name": {"$regex": search, "$options": "i"}})
+            .await?;
+        let mut result = Vec::new();
+        while let Some(item) = cursor.try_next().await? {
+            result.push(item.into())
+        }
+        Ok(result)
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StockItemDTO {

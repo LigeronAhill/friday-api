@@ -5,12 +5,13 @@ meta {
 }
 
 get {
-  url: 127.0.0.1:8000/api/stock?limit=10&offset=12
+  url: 127.0.0.1:8000/api/stock?search=aw omnia 33
   body: none
   auth: none
 }
 
 params:query {
-  limit: 10
-  offset: 12
+  search: aw omnia 33
+  ~limit: 10
+  ~offset: 12
 }

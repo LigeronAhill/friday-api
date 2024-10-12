@@ -7,6 +7,7 @@ pub enum AppError {
     DbError(String),
     ReqwestError(String),
     MailError(String),
+    Custom(String),
 }
 
 pub type Result<T> = core::result::Result<T, AppError>;

@@ -1,24 +1,21 @@
 mod currency;
-use std::sync::Arc;
-
+mod price;
+mod stock;
 pub use currency::*;
+pub use price::*;
+use std::sync::Arc;
+pub use stock::*;
 
-use crate::{currency_service::CurrencyStorage, stock_service::StockStorage};
+use crate::storage::Storage;
+
 /// Общие данные для обработчиков
 #[derive(Clone)]
 pub struct AppState {
-    pub currency_storage: Arc<dyn CurrencyStorage>,
-    pub stock_storage: Arc<dyn StockStorage>,
+    pub storage: Arc<Storage>,
 }
 impl AppState {
     /// Создать новый экземпляр общих данных
-    pub fn new(
-        currency_storage: Arc<dyn CurrencyStorage>,
-        stock_storage: Arc<dyn StockStorage>,
-    ) -> Self {
-        Self {
-            currency_storage,
-            stock_storage,
-        }
+    pub fn new(storage: Arc<Storage>) -> Self {
+        Self { storage }
     }
 }

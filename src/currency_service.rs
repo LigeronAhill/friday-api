@@ -1,32 +1,22 @@
 use std::sync::Arc;
 
-use actix_web::{get, web, HttpResponse};
 use tracing::info;
 
-use crate::{
-    models::{AppState, CurrenciesFromCbr},
-    Result,
-};
+use crate::{models::CurrenciesFromCbr, storage::Storage, Result};
 
 // url для получения курсов валют
 const CBR_URI: &str = "https://www.cbr-xml-daily.ru/daily_json.js";
 
-#[async_trait::async_trait]
-pub trait CurrencyStorage: Send + Sync {
-    async fn update_currencies(&self, input: CurrenciesFromCbr) -> Result<()>;
-    async fn get_latest_currency_rates(&self) -> Result<Vec<crate::models::Currency>>;
-    async fn get_monthly_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>>;
-}
 /// Служба для работы с курсами валют
 pub struct CurrencyService {
     /// клиент для отправки запросов
     client: reqwest::Client,
     /// база данных, имплементирующая необходимые методы
-    storage: Arc<dyn CurrencyStorage>,
+    storage: Arc<Storage>,
 }
 impl CurrencyService {
     /// создание нового экземпляра слуюбы валют
-    pub fn new(storage: Arc<dyn CurrencyStorage>) -> Self {
+    pub fn new(storage: Arc<Storage>) -> Self {
         let client = reqwest::Client::builder().gzip(true).build().unwrap();
         Self { client, storage }
     }
@@ -59,19 +49,5 @@ impl CurrencyService {
                 }
             }
         }
-    }
-}
-#[get("/api/currencies")]
-pub async fn currencies(state: web::Data<AppState>) -> HttpResponse {
-    match state.currency_storage.get_latest_currency_rates().await {
-        Ok(r) => HttpResponse::Ok().json(r),
-        Err(e) => HttpResponse::InternalServerError().json(e),
-    }
-}
-#[get("/api/currencies/month")]
-pub async fn monthly_currencies(state: web::Data<AppState>) -> HttpResponse {
-    match state.currency_storage.get_monthly_currency_rates().await {
-        Ok(r) => HttpResponse::Ok().json(r),
-        Err(e) => HttpResponse::InternalServerError().json(e),
     }
 }

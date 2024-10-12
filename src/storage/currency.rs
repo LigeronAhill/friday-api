@@ -1,35 +1,31 @@
 use bson::doc;
-use chrono::Utc;
 use futures::TryStreamExt;
-use mongodb::{bson::oid::ObjectId, Collection};
-use serde::{Deserialize, Serialize};
+use mongodb::Collection;
 use tracing::info;
 
 use crate::{
-    currency_service::CurrencyStorage,
     models::{CurrenciesFromCbr, Currency, ValuteDTO},
     storage::CURRENCY_COLLECTION,
 };
 
 use super::Storage;
 
-#[async_trait::async_trait]
-impl CurrencyStorage for Storage {
+impl Storage {
     /// обновляет курсы валют в MongoDB
-    async fn update_currencies(
+    pub async fn update_currencies(
         &self,
         input: crate::models::CurrenciesFromCbr,
     ) -> crate::Result<()> {
         let today = chrono::Utc::now();
         let date = today.date_naive();
         let latest = self.get_latest_currency_rates().await?;
-        let collection: Collection<CurrencyDTO> = self.database.collection(CURRENCY_COLLECTION);
+        let collection: Collection<Currency> = self.database.collection(CURRENCY_COLLECTION);
         if latest.is_empty() {
-            let rub = CurrencyDTO {
+            let rub = Currency {
                 name: "Российский рубль".to_string(),
                 char_code: "RUB".to_string(),
                 rate: 1.0,
-                updated: mongodb::bson::DateTime::now(),
+                updated: chrono::Utc::now(),
                 id: None,
             };
             let inserted = collection.insert_one(rub).await?;
@@ -59,8 +55,8 @@ impl CurrencyStorage for Storage {
         Ok(())
     }
     /// получает последние курсы валют из MongoDB
-    async fn get_latest_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>> {
-        let collection: Collection<CurrencyDTO> = self.database.collection("currencies");
+    pub async fn get_latest_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>> {
+        let collection: Collection<Currency> = self.database.collection("currencies");
         let today = chrono::Utc::now();
         let yesterday = today
             .checked_sub_days(chrono::Days::new(1))
@@ -71,57 +67,36 @@ impl CurrencyStorage for Storage {
         let mut cursor = collection.find(filter).await?;
         let mut result = Vec::new();
         while let Some(cur) = cursor.try_next().await? {
-            result.push(cur.into())
+            result.push(cur)
         }
         Ok(result)
     }
     /// получает курсы валют за месяц из MongoDB
-    async fn get_monthly_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>> {
-        let collection: Collection<CurrencyDTO> = self.database.collection("currencies");
+    pub async fn get_monthly_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>> {
+        let collection: Collection<Currency> = self.database.collection("currencies");
         let mut cursor = collection.find(doc! {}).sort(doc! {"updated": -1}).await?;
         let mut result: Vec<Currency> = Vec::new();
         while let Some(cur) = cursor.try_next().await? {
-            result.push(cur.into())
+            result.push(cur)
         }
-        // result.sort_by(|a, b| a.updated.cmp(&b.updated));
         Ok(result)
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CurrencyDTO {
-    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
-    id: Option<ObjectId>,
-    name: String,
-    char_code: String,
-    rate: f64,
-    updated: mongodb::bson::DateTime,
-}
-impl From<CurrencyDTO> for Currency {
-    fn from(value: CurrencyDTO) -> Self {
-        let updated: chrono::DateTime<Utc> = value.updated.into();
-        Currency {
-            name: value.name,
-            char_code: value.char_code,
-            rate: value.rate,
-            updated,
-        }
-    }
-}
-impl From<ValuteDTO> for CurrencyDTO {
+impl From<ValuteDTO> for Currency {
     fn from(value: ValuteDTO) -> Self {
         Self {
             id: None,
             name: value.name,
             char_code: value.char_code,
             rate: value.value,
-            updated: mongodb::bson::DateTime::now(),
+            updated: chrono::Utc::now(),
         }
     }
 }
-fn convert(input: CurrenciesFromCbr) -> Vec<CurrencyDTO> {
-    let gbp = CurrencyDTO::from(input.valute.gbp);
-    let usd = CurrencyDTO::from(input.valute.usd);
-    let eur = CurrencyDTO::from(input.valute.eur);
-    let cny = CurrencyDTO::from(input.valute.cny);
+fn convert(input: CurrenciesFromCbr) -> Vec<Currency> {
+    let gbp = Currency::from(input.valute.gbp);
+    let usd = Currency::from(input.valute.usd);
+    let eur = Currency::from(input.valute.eur);
+    let cny = Currency::from(input.valute.cny);
     vec![gbp, usd, eur, cny]
 }

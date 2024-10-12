@@ -1,4 +1,6 @@
-use super::{FetchMap, StockItem};
+use crate::models::Stock;
+
+use super::FetchMap;
 use tracing::error;
 
 mod carpetland;
@@ -10,7 +12,7 @@ mod ortgraph;
 mod vvk;
 mod zefir;
 
-pub async fn parse(fetches: FetchMap) -> Vec<StockItem> {
+pub async fn parse(fetches: FetchMap) -> Vec<Stock> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         for (supplier, (files, received)) in fetches {

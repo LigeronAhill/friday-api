@@ -5,14 +5,15 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4.9.0"
+actix-multipart = "0.7.2"
 chrono = "0.4.38"
 futures = "0.3.30"
-bson = {version = "2.13.0", features = ["chrono-0_4"]}
+bson = { version = "2.13.0", features = ["chrono-0_4"] }
 mongodb = "3.1.0"
-reqwest = {version = "0.12.7", features = ["gzip", "json", "cookies"]}
+reqwest = { version = "0.12.7", features = ["gzip", "json", "cookies"] }
 serde = { version = "1.0.210", features = ["derive"] }
-shuttle-actix-web = "0.47.0"
-shuttle-runtime = "0.47.0"
+shuttle-actix-web = "0.48.0"
+shuttle-runtime = "0.48.0"
 tokio = "1.40.0"
 tracing = "0.1.40"
 async-trait = "0.1.82"

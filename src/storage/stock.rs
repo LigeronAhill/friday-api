@@ -5,14 +5,14 @@ use futures::TryStreamExt;
 use mongodb::Collection;
 use tracing::info;
 
-use crate::models::Stock;
+use crate::models::{Stock, StockDTO};
 use crate::Result;
 
 use super::{Storage, STOCK_COLLECTION};
 
 impl Storage {
-    pub async fn update_stock(&self, items: Vec<Stock>) -> Result<()> {
-        let collection: Collection<Stock> = self.database.collection(STOCK_COLLECTION);
+    pub async fn update_stock(&self, items: Vec<StockDTO>) -> Result<()> {
+        let collection: Collection<StockDTO> = self.database.collection(STOCK_COLLECTION);
         let mut set = HashSet::new();
         items.iter().map(|i| i.supplier.clone()).for_each(|s| {
             set.insert(s);
@@ -29,7 +29,7 @@ impl Storage {
         Ok(())
     }
     pub async fn get_stock(&self, limit: i64, offset: u64) -> Result<Vec<Stock>> {
-        let collection: Collection<Stock> = self.database.collection(STOCK_COLLECTION);
+        let collection: Collection<StockDTO> = self.database.collection(STOCK_COLLECTION);
         let mut cursor = collection.find(doc! {}).limit(limit).skip(offset).await?;
         let mut result = Vec::new();
         while let Some(item) = cursor.try_next().await? {
@@ -38,7 +38,7 @@ impl Storage {
         Ok(result)
     }
     pub async fn find_stock(&self, search: String) -> Result<Vec<Stock>> {
-        let collection: Collection<Stock> = self.database.collection(STOCK_COLLECTION);
+        let collection: Collection<StockDTO> = self.database.collection(STOCK_COLLECTION);
         let mut cursor = collection
             .find(doc! {"name": {"$regex": search, "$options": "i"}})
             .await?;

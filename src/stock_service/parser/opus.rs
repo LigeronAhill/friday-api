@@ -5,9 +5,9 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
 
-use crate::models::Stock;
+use crate::models::StockDTO;
 
-pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> {
+pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<StockDTO> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         for file in files {
@@ -34,7 +34,7 @@ pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> 
     result
 }
 
-async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<Stock>) {
+async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<StockDTO>) {
     let mut brand = String::new();
     let mut pt = String::new();
     for row in table.rows() {
@@ -51,11 +51,11 @@ async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<
                     continue;
                 } else if stock > 5.0 {
                     let name = format!("{pt} {brand} {raw_name}");
-                    let item = Stock {
+                    let item = StockDTO {
                         supplier: "opus".to_string(),
                         name,
                         stock,
-                        updated: received,
+                        updated: received.into(),
                         id: None,
                     };
                     if tx.send(item).is_err() {

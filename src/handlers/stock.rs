@@ -10,7 +10,7 @@ struct Query {
     search: Option<String>,
 }
 
-#[get("/api/stock")]
+#[get("/stock")]
 pub async fn stock(state: web::Data<AppState>, query: Option<web::Query<Query>>) -> HttpResponse {
     match query {
         Some(q) => {

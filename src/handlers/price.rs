@@ -12,7 +12,7 @@ struct Query {
     search: String,
 }
 
-#[get("/api/prices")]
+#[get("/prices")]
 pub async fn get_price(
     state: web::Data<AppState>,
     query: Option<web::Query<Query>>,
@@ -47,7 +47,7 @@ pub async fn update_prices(
     }
 }
 
-#[post("/api/price")]
+#[post("/price")]
 pub async fn update_price(state: web::Data<AppState>, form: web::Form<PriceItem>) -> HttpResponse {
     match state.storage.update_price(form.0).await {
         Ok(_) => HttpResponse::Ok().finish(),

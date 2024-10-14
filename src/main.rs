@@ -41,16 +41,24 @@ async fn main(
     info!("Служба остатков готова к использованию, запускаю");
     tokio::spawn(async move { ss.run().await });
     let config = move |cfg: &mut ServiceConfig| {
+        let cors = actix_cors::Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header();
         cfg.service(hello_world)
-            .service(handlers::currencies)
-            .service(handlers::monthly_currencies)
-            .service(handlers::stock)
-            .service(handlers::get_price)
-            // .service(handlers::update_prices)
             .service(
-                web::resource("/pricestest")
-                    .route(web::get().to(index))
-                    .route(web::post().to(handlers::update_prices)),
+                web::scope("/api/v1")
+                    .wrap(cors)
+                    .service(handlers::currencies)
+                    .service(handlers::monthly_currencies)
+                    .service(handlers::stock)
+                    .service(handlers::get_price)
+                    // .service(handlers::update_prices)
+                    .service(
+                        web::resource("/pricestest")
+                            .route(web::get().to(index))
+                            .route(web::post().to(handlers::update_prices)),
+                    ),
             )
             .app_data(state);
     };

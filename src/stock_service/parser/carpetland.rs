@@ -5,9 +5,9 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
 
-use crate::models::Stock;
+use crate::models::StockDTO;
 
-pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> {
+pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<StockDTO> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         for file in files {
@@ -34,7 +34,7 @@ pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> 
     result
 }
 
-async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<Stock>) {
+async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<StockDTO>) {
     for row in table.rows() {
         if let Some(stock) = row
             .get(5)
@@ -45,11 +45,11 @@ async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<
             let color = row.get(2).map(|d| d.to_string()).unwrap_or_default();
             let width = row.get(3).map(|d| d.to_string()).unwrap_or_default();
             let name = format!("{brand} {collection} {color} {width}");
-            let item = Stock {
+            let item = StockDTO {
                 name: name.clone(),
                 stock,
                 supplier: "carpetland".to_string(),
-                updated: received,
+                updated: received.into(),
                 id: None,
             };
             if tx.send(item).is_err() {

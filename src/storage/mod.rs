@@ -32,17 +32,10 @@ impl Storage {
             Err(e) => tracing::error!("{e:?}"),
         }
         let name_index = IndexModel::builder().keys(doc! { "name": "text" }).build();
-        let brand_index = IndexModel::builder().keys(doc! { "brand": "text" }).build();
         let price_collection: mongodb::Collection<Price> = database.collection(PRICE_COLLECTION);
         match price_collection.create_index(name_index).await {
             Ok(r) => {
                 tracing::info!("Создала индекс по имени в коллекции прайсов: {:?}", r);
-            }
-            Err(e) => tracing::error!("{e:?}"),
-        }
-        match price_collection.create_index(brand_index).await {
-            Ok(r) => {
-                tracing::info!("Создала индекс по бренду в коллекции прайсов: {:?}", r);
             }
             Err(e) => tracing::error!("{e:?}"),
         }

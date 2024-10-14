@@ -18,7 +18,7 @@ pub async fn get_price(
     query: Option<web::Query<Query>>,
 ) -> HttpResponse {
     match query {
-        Some(q) => match state.storage.find_price_item(q.search.clone()).await {
+        Some(q) => match state.storage.find_price(q.search.clone()).await {
             Ok(r) => HttpResponse::Ok().json(r),
             Err(e) => HttpResponse::InternalServerError().json(e),
         },

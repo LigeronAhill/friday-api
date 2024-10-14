@@ -53,3 +53,15 @@ impl From<CurrencyDTO> for Currency {
         }
     }
 }
+impl From<ValuteDTO> for CurrencyDTO {
+    fn from(value: ValuteDTO) -> Self {
+        let updated = chrono::Utc::now();
+        Self {
+            id: None,
+            name: value.name,
+            char_code: value.char_code,
+            rate: value.value,
+            updated: updated.into(),
+        }
+    }
+}

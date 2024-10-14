@@ -17,7 +17,7 @@ impl Storage {
 
     pub async fn update_price(&self, item: crate::models::PriceItem) -> crate::Result<()> {
         let collection: Collection<PriceDTO> = self.database.collection(PRICE_COLLECTION);
-        let currencies = self.get_latest_currency_rates().await?;
+        let currencies = self.get_all_currencies().await?;
         let item = PriceDTO::from(item, currencies);
         let filter = doc! {
             "supplier": &item.supplier,
@@ -54,59 +54,35 @@ impl Storage {
         Ok(result)
     }
 
-    pub async fn find_price_item(
+    pub async fn find_price(
         &self,
         search_string: String,
     ) -> crate::Result<Vec<crate::models::Price>> {
-        let collection: Collection<PriceDTO> = self.database.collection(PRICE_COLLECTION);
-        let mut cursor = collection.find(doc! {}).await?;
-        let mut all_prices = Vec::new();
-        while let Some(item) = cursor.try_next().await? {
-            all_prices.push(item.into())
-        }
-        Ok(search(all_prices, search_string))
-    }
-}
-
-fn search(haystack: Vec<crate::models::Price>, search_string: String) -> Vec<crate::models::Price> {
-    if search_string.is_empty() {
-        return haystack;
-    }
-    let mut result = Vec::new();
-    let search_slice = search_string
-        .split_whitespace()
-        .map(|w| w.trim().to_lowercase())
-        .collect::<Vec<_>>();
-
-    for word in search_slice {
-        if result.is_empty() {
-            result = haystack
-                .clone()
-                .into_iter()
-                .filter(|item| {
-                    let name = get_name(item);
-                    name.contains(&word)
-                })
-                .collect();
+        let slice_search = search_string.split_whitespace().collect::<Vec<_>>();
+        let filter = if slice_search.len() > 2 {
+            let brand = slice_search[0];
+            let nobrand = slice_search[1..].join(" ");
+            doc! {
+                "brand": doc!{"$regex": format!("^.*{}.*$", brand), "$options": "i"},
+                "name": doc! {"$regex": format!("^.*{}.*$", nobrand), "$options": "i"},
+            }
         } else {
-            result = result
-                .clone()
-                .into_iter()
-                .filter(|item| {
-                    let name = get_name(item);
-                    name.contains(&word)
-                })
-                .collect();
+            let r = slice_search
+                .iter()
+                .map(|w| format!(".*{w}.*"))
+                .collect::<Vec<_>>()
+                .join("");
+            doc! {
+                "name": doc! {"$regex": format!("^{r}$"), "$options": "i"},
+            }
+        };
+        let mut cursor = self.prices.find(filter).await?;
+        let mut result = Vec::new();
+        while let Some(item) = cursor.try_next().await? {
+            result.push(item.into())
         }
+        Ok(result)
     }
-    result
-}
-fn get_name(item: &crate::models::Price) -> String {
-    format!(
-        "{} {} {} {}",
-        item.supplier, item.product_type, item.brand, item.name
-    )
-    .to_lowercase()
 }
 
 impl PriceDTO {

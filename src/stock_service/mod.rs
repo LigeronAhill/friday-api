@@ -11,6 +11,7 @@ use web_spider::Spider;
 
 pub type FetchMap =
     std::collections::HashMap<String, (Vec<Vec<u8>>, chrono::DateTime<chrono::Utc>)>;
+
 pub struct StockService {
     mail_client: MailClient,
     spider: Spider,

@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use crate::{models::CurrenciesFromCbr, storage::Storage, Result};
+use crate::{
+    models::{CurrenciesFromCbr, Currency, CurrencyDTO},
+    storage::Storage,
+    Result,
+};
 
 // url для получения курсов валют
 const CBR_URI: &str = "https://www.cbr-xml-daily.ru/daily_json.js";
 
+#[derive(Clone)]
 /// Служба для работы с курсами валют
 pub struct CurrencyService {
     /// клиент для отправки запросов
@@ -23,8 +28,18 @@ impl CurrencyService {
     /// обновление курсов валют в базе данных
     pub async fn update_currencies(&self) -> Result<()> {
         let response: CurrenciesFromCbr = self.client.get(CBR_URI).send().await?.json().await?;
-        self.storage.update_currencies(response).await?;
+        let currencies = convert(response);
+        for currency in currencies {
+            self.storage.insert_currency(currency).await?;
+        }
         Ok(())
+    }
+    pub async fn get_currencies(&self) -> Result<Vec<Currency>> {
+        let res = self.storage.get_all_currencies().await?;
+        Ok(res)
+    }
+    pub async fn find_currency(&self, char_code: &str) -> Result<Option<Currency>> {
+        self.storage.get_currency_by_char_code(char_code).await
     }
     pub async fn run(&self) {
         loop {
@@ -50,4 +65,11 @@ impl CurrencyService {
             }
         }
     }
+}
+fn convert(input: CurrenciesFromCbr) -> Vec<CurrencyDTO> {
+    let gbp = CurrencyDTO::from(input.valute.gbp);
+    let usd = CurrencyDTO::from(input.valute.usd);
+    let eur = CurrencyDTO::from(input.valute.eur);
+    let cny = CurrencyDTO::from(input.valute.cny);
+    vec![gbp, usd, eur, cny]
 }

@@ -31,15 +31,16 @@ async fn main(
         .await
         .expect("Ошибка при инициализации базы данных");
     info!("База данных готова к использованию");
-    let state = web::Data::new(models::AppState::new(storage.clone()));
     info!("Инициализирую службу валют");
     let cs = currency_service::CurrencyService::new(storage.clone());
+    let cs_to_run = cs.clone();
     info!("Служба валют готова к использованию, запускаю");
-    tokio::spawn(async move { cs.run().await });
+    tokio::spawn(async move { cs_to_run.run().await });
     info!("Инициализирую службу остатков");
     let ss = stock_service::StockService::new(secrets, storage.clone())?;
     info!("Служба остатков готова к использованию, запускаю");
     tokio::spawn(async move { ss.run().await });
+    let state = web::Data::new(models::AppState::new(storage.clone(), cs));
     let config = move |cfg: &mut ServiceConfig| {
         let cors = actix_cors::Cors::default()
             .allow_any_origin()
@@ -50,7 +51,7 @@ async fn main(
                 web::scope("/api/v1")
                     .wrap(cors)
                     .service(handlers::currencies)
-                    .service(handlers::monthly_currencies)
+                    .service(handlers::currency)
                     .service(handlers::stock)
                     .service(handlers::get_price)
                     // .service(handlers::update_prices)

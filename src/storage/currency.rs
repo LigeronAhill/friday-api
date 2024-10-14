@@ -1,5 +1,6 @@
 use bson::doc;
 use futures::TryStreamExt;
+use tracing::info;
 
 use crate::{
     models::{Currency, CurrencyDTO},
@@ -9,28 +10,26 @@ use crate::{
 use super::Storage;
 
 impl Storage {
-    pub async fn insert_currency(&self, currency: CurrencyDTO) -> Result<Currency> {
+    pub async fn insert_currency(&self, currency: CurrencyDTO) -> Result<()> {
         let filter = doc! {
-            "char_code": currency.char_code,
-            "name": currency.name,
+            "char_code": &currency.char_code,
+            "name": &currency.name,
         };
         let update = doc! {
-            "rate": currency.rate,
-            "updated": currency.updated,
+            "$set": doc! {
+            "name": &currency.name,
+            "char_code": &currency.char_code,
+            "rate": &currency.rate,
+            "updated": &currency.updated,
+            },
         };
-        let res = self
-            .currencies
+        let name = currency.name;
+        self.currencies
             .update_one(filter, update)
             .upsert(true)
             .await?;
-        let inserted = self
-            .currencies
-            .find_one(doc! {"_id": res.upserted_id})
-            .await?
-            .ok_or(crate::AppError::DbError(
-                "Не получилось создать валюту".to_string(),
-            ))?;
-        Ok(inserted.into())
+        info!("Обновила валюту {name}");
+        Ok(())
     }
     pub async fn get_currency_by_char_code(&self, char_code: &str) -> Result<Option<Currency>> {
         let filter = doc! {"char_code": char_code};

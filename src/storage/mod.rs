@@ -28,6 +28,17 @@ impl Storage {
         let client = mongodb::Client::with_uri_str(uri).await?;
         let database = client.database(DATABASE);
         let currencies: Collection<CurrencyDTO> = database.collection(CURRENCY_COLLECTION);
+        let rub = CurrencyDTO {
+            id: None,
+            name: "Российский рубль".to_string(),
+            char_code: String::from("RUB"),
+            rate: 1.0,
+            updated: chrono::Utc::now().into(),
+        };
+        match currencies.insert_one(rub).await {
+            Ok(_) => {}
+            Err(e) => error!("Не удалось добавить валюту: {e:?}"),
+        }
         let stock: Collection<StockDTO> = database.collection(STOCK_COLLECTION);
         let prices: Collection<PriceDTO> = database.collection(PRICE_COLLECTION);
         let opts = IndexOptions::builder().unique(true).build();

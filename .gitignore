@@ -5,3 +5,4 @@ Secrets*.toml
 .ignore
 
 .shuttle*
+rest/friday-api/render

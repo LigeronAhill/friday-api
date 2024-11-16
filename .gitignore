@@ -6,3 +6,4 @@ Secrets*.toml
 
 .shuttle*
 rest/friday-api/render
+.idea

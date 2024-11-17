@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
+use tracing::error;
 
 use crate::{AppError, Result};
 
@@ -107,13 +108,76 @@ impl Spider {
         }
         Ok(result)
     }
+    async fn sf(&self) -> Result<(Vec<u8>, chrono::DateTime<chrono::Utc>)> {
+        use chrono::prelude::*;
+        const BASE_URI: &str = "https://cloud.mail.ru/public/SA23/oHuEdQLmS";
+        let text = self.client.get(BASE_URI).send().await?.text().await?;
+        let weblink_re =
+            regex::Regex::new(r#""weblink_get":\S"count":"1","url":"(?<url>\S+/no)"},"#).unwrap();
+        let filename_re = regex::Regex::new(
+            r#""name":"Остатки СФ на  (?<date>[\d\.]+) Клиентские Ковровые \.xlsx","weblink":"(?<url>[A-zА-я\/\s\d\.]+)","#,
+        ).unwrap();
+        let today = chrono::Utc::now();
+        let result = (Vec::new(), today);
+        if let Some(wl_capture) = weblink_re.captures(&text) {
+            let weblink = wl_capture.name("url").unwrap().as_str();
+            if let Some(filename_capture) = filename_re.captures(&text) {
+                let filename = filename_capture.name("url").unwrap().as_str();
+                let date_str = filename_capture.name("date").unwrap().as_str();
+                let day = date_str
+                    .split('.')
+                    .collect::<Vec<_>>()
+                    .first()
+                    .and_then(|w| w.parse::<u32>().ok())
+                    .unwrap_or(today.day());
+                let month = date_str
+                    .split('.')
+                    .collect::<Vec<_>>()
+                    .get(1)
+                    .and_then(|w| w.parse::<u32>().ok())
+                    .unwrap_or(today.month());
+                let year = date_str
+                    .split('.')
+                    .collect::<Vec<_>>()
+                    .get(2)
+                    .and_then(|w| w.parse::<i32>().ok())
+                    .unwrap_or(today.year());
+                let date = chrono::Utc
+                    .with_ymd_and_hms(year, month, day, 0, 0, 0)
+                    .unwrap();
+                let uri = format!("{weblink}/{filename}");
+                let file = self.client.get(&uri).send().await?.bytes().await?.to_vec();
+                Ok((file, date))
+            } else {
+                Ok(result)
+            }
+        } else {
+            Ok(result)
+        }
+    }
     pub async fn get_web(&self) -> Result<FetchMap> {
         let now = chrono::Utc::now();
         let mut map = HashMap::new();
-        let ort = self.ortgraph().await?;
-        let vvk = self.vvk().await?;
-        map.insert("ortgraph".to_owned(), (ort, now));
-        map.insert("vvk".to_owned(), (vvk, now));
+        if let Ok(ort) = self.ortgraph().await {
+            map.insert("ortgraph".to_owned(), (ort, now));
+        } else {
+            error!("Ошибка получения ortgraph");
+        }
+        match self.vvk().await {
+            Ok(vvk) => {
+                map.insert("vvk".to_owned(), (vvk, now));
+            }
+            Err(e) => error!("{e:?}"),
+        }
+        if let Ok((sf, received)) = self.sf().await {
+            if !sf.is_empty() {
+                map.insert("sportflooring".to_owned(), (vec![sf], received));
+            } else {
+                error!("Ошибка получения sf");
+            }
+        } else {
+            error!("Ошибка получения sf");
+        }
         Ok(map)
     }
 }

@@ -9,6 +9,7 @@ mod fenix;
 mod fox;
 mod opus;
 mod ortgraph;
+mod sf;
 mod vvk;
 mod zefir;
 
@@ -69,6 +70,21 @@ pub async fn parse(fetches: FetchMap) -> Vec<StockDTO> {
                 "ortgraph" => {
                     let tx = tx.clone();
                     let res = ortgraph::parser(files.clone(), received).await;
+                    if tx.send(res).is_err() {
+                        error!("Ошибка при отправке результата парсинга в канал...");
+                    }
+                }
+                "sportflooring" => {
+                    let tx = tx.clone();
+                    let res = sf::parser(
+                        files
+                            .clone()
+                            .first()
+                            .map(|s| s.to_owned())
+                            .unwrap_or_default(),
+                        received,
+                    )
+                    .await;
                     if tx.send(res).is_err() {
                         error!("Ошибка при отправке результата парсинга в канал...");
                     }

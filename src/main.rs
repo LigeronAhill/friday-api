@@ -66,7 +66,6 @@ async fn main(
 
     Ok(config.into())
 }
-// TODO: Связать валюты с прайс-листами
 async fn index() -> actix_web::HttpResponse {
     let html = r#"<html>
         <head><title>Upload Test</title></head>

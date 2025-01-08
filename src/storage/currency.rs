@@ -14,12 +14,12 @@ impl CurrencyStorage {
         Self { pool }
     }
     pub async fn get_all(&self) -> Result<Vec<Currency>> {
-        let query = "SELECT * FROM currency ORDER BY name DESC";
+        let query = "SELECT * FROM currencies ORDER BY name DESC";
         let results = sqlx::query_as::<_, Currency>(query).fetch_all(&self.pool).await?;
         Ok(results)
     }
     pub async fn get_by_char_code(&self, code: &str) -> Result<Option<Currency>> {
-        let query = "SELECT * FROM currency WHERE code = $1";
+        let query = "SELECT * FROM currencies WHERE code = $1";
         let results = sqlx::query_as::<_, Currency>(query).bind(code).fetch_optional(&self.pool).await?;
         Ok(results)
     }

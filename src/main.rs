@@ -26,6 +26,10 @@ async fn main(
         local_uri = "postgres://postgres:{secrets.PG_PASS}@localhost:5432/friday-api"
     )] pool: sqlx::PgPool,
 ) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+    sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations;").execute(&pool).await.unwrap();
+    sqlx::query("DROP TABLE IF EXISTS prices;").execute(&pool).await.unwrap();
+    sqlx::query("DROP TABLE IF EXISTS stock;").execute(&pool).await.unwrap();
+    sqlx::query("DROP TABLE IF EXISTS currencies;").execute(&pool).await.unwrap();
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
     info!("Инициализирую базу данных валют");
     let currency_storage = storage::CurrencyStorage::new(pool.clone());

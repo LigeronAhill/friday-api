@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS currencies
     name      VARCHAR          NOT NULL UNIQUE,
     char_code VARCHAR          NOT NULL UNIQUE,
     rate      DOUBLE PRECISION NOT NULL,
-    updated   TIMESTAMP        NOT NULL DEFAULT now()
+    updated   TIMESTAMPTZ      NOT NULL DEFAULT now()
 );

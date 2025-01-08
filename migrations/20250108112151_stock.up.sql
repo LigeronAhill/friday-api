@@ -4,5 +4,5 @@ CREATE TABLE IF NOT EXISTS stock
     supplier VARCHAR          NOT NULL,
     name     VARCHAR          NOT NULL,
     stock    DOUBLE PRECISION NOT NULL,
-    updated  TIMESTAMP        NOT NULL DEFAULT now()
+    updated  TIMESTAMPTZ      NOT NULL DEFAULT now()
 );

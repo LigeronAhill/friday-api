@@ -11,6 +11,6 @@ CREATE TABLE IF NOT EXISTS prices
     recommended_price_currency uuid REFERENCES currencies (id),
     colors                     VARCHAR[]        NOT NULL,
     widths                     DOUBLE PRECISION[],
-    updated                    TIMESTAMP        NOT NULL DEFAULT now(),
+    updated                    TIMESTAMPTZ      NOT NULL DEFAULT now(),
     CONSTRAINT u_constraint UNIQUE (supplier, product_type, brand, name)
 )

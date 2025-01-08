@@ -1,4 +1,4 @@
 ### GET request to example server
-GET https://friday-api-vqkh.shuttle.app/api/v1/currencies
+GET {{baseUrl}}/api/v1/currencies
 
 ###

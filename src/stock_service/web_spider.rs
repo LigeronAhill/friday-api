@@ -20,15 +20,15 @@ impl Spider {
         let v = reqwest::header::HeaderValue::from_str(
             "https://www.yandex.ru/clck/jsredir?from=yandex.ru;suggest;browser&text=",
         )
-        .map_err(|e| AppError::ReqwestError(e.to_string()))?;
+            .map_err(|e| AppError::ReqwestError(e.to_string()))?;
         def_head.insert(reqwest::header::REFERER, v);
         let client = reqwest::Client::builder()
-        .gzip(true)
-        .default_headers(def_head)
-        .cookie_store(true)
-        .cookie_provider(cookie_store.clone())
-        .user_agent("Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-        .build()?;
+            .gzip(true)
+            .default_headers(def_head)
+            .cookie_store(true)
+            .cookie_provider(cookie_store.clone())
+            .user_agent("Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .build()?;
         Ok(Spider {
             ort_user,
             ort_pass,
@@ -115,7 +115,7 @@ impl Spider {
         let weblink_re =
             regex::Regex::new(r#""weblink_get":\S"count":"1","url":"(?<url>\S+/no)"},"#).unwrap();
         let filename_re = regex::Regex::new(
-            r#""name":"Остатки СФ на  (?<date>[\d\.]+) Клиентские Ковровые \.xlsx","weblink":"(?<url>[A-zА-я\/\s\d\.]+)","#,
+            r#""name":"Остатки\s+СФ\s+на\s+(?<date>[\d.]+)\s+Клиентские\s+Ковровые\s*.+xlsx","weblink":"(?<url>[A-zА-я/\s\d.]+)","#,
         ).unwrap();
         let today = chrono::Utc::now();
         let result = (Vec::new(), today);
@@ -200,7 +200,7 @@ fn get_links(body: String) -> Vec<String> {
         if l.contains(".xls")
             && l.contains("upload")
             && (annotation.to_lowercase().contains("ковр")
-                || annotation.to_lowercase().contains("напол"))
+            || annotation.to_lowercase().contains("напол"))
         {
             // info!("Got link for {annotation}: {l}");
             result.push(l)

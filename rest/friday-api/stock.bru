@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: 127.0.0.1:8000/api/v1/stock?search=maserati
+  url: 127.0.0.1:8000/api/v1/stock
   body: none
   auth: none
 }
 
 params:query {
-  search: maserati
+  ~search: maserati
   ~limit: 10
   ~offset: 12
 }

@@ -12,11 +12,11 @@ bson = { version = "2.13.0", features = ["chrono-0_4"] }
 mongodb = "3.1.0"
 reqwest = { version = "0.12.7", features = ["gzip", "json", "cookies"] }
 serde = { version = "1.0.210", features = ["derive"] }
-shuttle-actix-web = "0.48.0"
-shuttle-runtime = "0.48.0"
+shuttle-actix-web = "0.50"
+shuttle-runtime = "0.50"
 tokio = "1.40.0"
 tracing = "0.1.40"
-async-trait = "0.1.82"
+#async-trait = "0.1.82"
 imap = "3.0.0-alpha.14"
 mail-parser = "0.9.4"
 calamine = "0.26.1"

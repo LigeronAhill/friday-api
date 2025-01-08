@@ -1,51 +1,48 @@
+use crate::{models::Stock, Result};
 use std::collections::HashSet;
 
-use bson::doc;
-use futures::TryStreamExt;
-use mongodb::Collection;
-use tracing::info;
+#[derive(Clone)]
+pub struct StockStorage {
+    pool: sqlx::PgPool,
+}
 
-use crate::models::{Stock, StockDTO};
-use crate::Result;
-
-use super::{Storage, STOCK_COLLECTION};
-
-impl Storage {
-    pub async fn update_stock(&self, items: Vec<StockDTO>) -> Result<()> {
-        let collection: Collection<StockDTO> = self.database.collection(STOCK_COLLECTION);
-        let mut set = HashSet::new();
-        items.iter().map(|i| i.supplier.clone()).for_each(|s| {
-            set.insert(s);
+impl StockStorage {
+    pub fn new(pool: sqlx::PgPool) -> StockStorage {
+        StockStorage { pool }
+    }
+    pub async fn update(&self, input: Vec<Stock>) -> Result<(u64, u64)> {
+        let mut suppliers = HashSet::new();
+        for supplier in input.iter().map(|s| s.supplier.clone()) {
+            suppliers.insert(supplier);
+        }
+        let mut tx = self.pool.begin().await?;
+        let mut deleted = 0;
+        for supplier in suppliers {
+            let query = "DELETE FROM stock WHERE supplier=$1";
+            let qr = sqlx::query(query).bind(supplier).execute(&mut *tx).await?;
+            deleted += qr.rows_affected();
+        }
+        let query_string = "INSERT INTO stock(supplier, name, stock) ";
+        let mut query_builder = sqlx::QueryBuilder::new(query_string);
+        query_builder.push_values(input, |mut b, stock| {
+            b.push_bind(stock.supplier)
+                .push_bind(stock.name)
+                .push_bind(stock.stock);
         });
-        for supplier in set {
-            let filter = doc! {"supplier": &supplier};
-            let dr = collection.delete_many(filter).await?;
-            let count = dr.deleted_count;
-            info!("Удалила {count} позиций из остатков '{supplier}'");
-        }
-        let result = collection.insert_many(items).await?;
-        let inserted = result.inserted_ids.len();
-        tracing::info!("Обновила {inserted} позиций остатков в базе данных");
-        Ok(())
+        let query = query_builder.build();
+        let results = query.execute(&mut *tx).await?;
+        let inserted = results.rows_affected();
+        tx.commit().await?;
+        Ok((deleted, inserted))
     }
-    pub async fn get_stock(&self, limit: i64, offset: u64) -> Result<Vec<Stock>> {
-        let collection: Collection<StockDTO> = self.database.collection(STOCK_COLLECTION);
-        let mut cursor = collection.find(doc! {}).limit(limit).skip(offset).await?;
-        let mut result = Vec::new();
-        while let Some(item) = cursor.try_next().await? {
-            result.push(item.into())
-        }
-        Ok(result)
+    pub async fn get(&self, limit: i32, offset: i32) -> Result<Vec<Stock>> {
+        let query = "SELECT * FROM stock LIMIT $1 OFFSET $2";
+        let results = sqlx::query_as::<_, Stock>(query).bind(limit).bind(offset).fetch_all(&self.pool).await?;
+        Ok(results)
     }
-    pub async fn find_stock(&self, search: String) -> Result<Vec<Stock>> {
-        let collection: Collection<StockDTO> = self.database.collection(STOCK_COLLECTION);
-        let mut cursor = collection
-            .find(doc! {"name": {"$regex": search, "$options": "i"}})
-            .await?;
-        let mut result = Vec::new();
-        while let Some(item) = cursor.try_next().await? {
-            result.push(item.into())
-        }
-        Ok(result)
+    pub async fn find(&self, search_string: String) -> Result<Vec<Stock>> {
+        let query = "SELECT * FROM stock WHERE name ILIKE $1";
+        let results = sqlx::query_as::<_, Stock>(query).bind(format!("%{search_string}%")).fetch_all(&self.pool).await?;
+        Ok(results)
     }
 }

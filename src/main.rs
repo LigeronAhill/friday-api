@@ -11,6 +11,7 @@ mod handlers;
 mod models;
 mod stock_service;
 mod storage;
+mod price_service;
 
 #[get("/")]
 async fn hello_world() -> &'static str {
@@ -21,26 +22,28 @@ async fn hello_world() -> &'static str {
 #[shuttle_runtime::main]
 async fn main(
     #[shuttle_runtime::Secrets] secrets: shuttle_runtime::SecretStore,
+    #[shuttle_shared_db::Postgres(
+        local_uri = "postgres://postgres:{secrets.PG_PASS}@localhost:5432/friday-api"
+    )] pool: sqlx::PgPool,
 ) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
-    let mongo_uri = secrets
-        .get("MONGODB_URL")
-        .expect("MONGODB_URL не найдено в Secrets.toml");
-    info!("MONGODB_URL прочитана");
-    info!("Инициализирую базу данных");
-    let storage = storage::Storage::new(&mongo_uri)
-        .await
-        .expect("Ошибка при инициализации базы данных");
-    info!("База данных готова к использованию");
+    sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
+    info!("Инициализирую базу данных валют");
+    let currency_storage = storage::CurrencyStorage::new(pool.clone());
+    info!("База данных валют готова к использованию");
     info!("Инициализирую службу валют");
-    let cs = currency_service::CurrencyService::new(storage.clone());
+    let cs = currency_service::CurrencyService::new(currency_storage);
     let cs_to_run = cs.clone();
     info!("Служба валют готова к использованию, запускаю");
     tokio::spawn(async move { cs_to_run.run().await });
     info!("Инициализирую службу остатков");
-    let ss = stock_service::StockService::new(secrets, storage.clone())?;
+    let stock_storage = storage::StockStorage::new(pool.clone());
+    let ss = stock_service::StockService::new(secrets, stock_storage)?;
     info!("Служба остатков готова к использованию, запускаю");
-    tokio::spawn(async move { ss.run().await });
-    let state = web::Data::new(models::AppState::new(storage.clone(), cs));
+    let ss_to_run = ss.clone();
+    tokio::spawn(async move { ss_to_run.run().await });
+    let price_storage = storage::PriceStorage::new(pool.clone());
+    let ps = price_service::PriceService::new(price_storage);
+    let state = web::Data::new(models::AppState::new(cs, ss, ps));
     let config = move |cfg: &mut ServiceConfig| {
         let cors = actix_cors::Cors::default()
             .allow_any_origin()

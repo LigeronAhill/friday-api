@@ -5,9 +5,9 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
 
-use crate::models::StockDTO;
+use crate::models::Stock;
 
-pub async fn parser(file: Vec<u8>, received: DateTime<Utc>) -> Vec<StockDTO> {
+pub async fn parser(file: Vec<u8>, received: DateTime<Utc>) -> Vec<Stock> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         let cursor = Cursor::new(file);
@@ -31,7 +31,7 @@ pub async fn parser(file: Vec<u8>, received: DateTime<Utc>) -> Vec<StockDTO> {
     result
 }
 
-async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<StockDTO>) {
+async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<Stock>) {
     for row in table.rows() {
         if let Some(stock) = row.get(8).and_then(|d| {
             d.to_string()
@@ -48,12 +48,12 @@ async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<
                     .collect::<Vec<_>>()
                     .join(" ")
             }) {
-                let item = StockDTO {
+                let item = Stock {
                     name: name.clone(),
                     stock,
                     supplier: "sportflooring".to_string(),
                     updated: received.into(),
-                    id: None,
+                    id: uuid::Uuid::new_v4(),
                 };
                 if tx.send(item).is_err() {
                     error!("Ошибка при отправке строки из файла в канал...")

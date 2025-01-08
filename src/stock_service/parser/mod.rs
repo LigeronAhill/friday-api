@@ -1,6 +1,5 @@
-use crate::models::StockDTO;
-
 use super::FetchMap;
+use crate::models::Stock;
 use tracing::error;
 
 mod carpetland;
@@ -13,7 +12,7 @@ mod sf;
 mod vvk;
 mod zefir;
 
-pub async fn parse(fetches: FetchMap) -> Vec<StockDTO> {
+pub async fn parse(fetches: FetchMap) -> Vec<Stock> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         for (supplier, (files, received)) in fetches {
@@ -84,7 +83,7 @@ pub async fn parse(fetches: FetchMap) -> Vec<StockDTO> {
                             .unwrap_or_default(),
                         received,
                     )
-                    .await;
+                        .await;
                     if tx.send(res).is_err() {
                         error!("Ошибка при отправке результата парсинга в канал...");
                     }

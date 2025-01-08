@@ -6,20 +6,20 @@ edition = "2021"
 [dependencies]
 actix-web = "4.9.0"
 actix-multipart = "0.7.2"
-chrono = "0.4.38"
-futures = "0.3.30"
-bson = { version = "2.13.0", features = ["chrono-0_4"] }
-mongodb = "3.1.0"
+chrono = { version = "0.4.38", features = ["serde"] }
 reqwest = { version = "0.12.7", features = ["gzip", "json", "cookies"] }
 serde = { version = "1.0.210", features = ["derive"] }
 shuttle-actix-web = "0.50"
 shuttle-runtime = "0.50"
+shuttle-shared-db = { version = "0.50", features = ["sqlx", "postgres"] }
 tokio = "1.40.0"
 tracing = "0.1.40"
-#async-trait = "0.1.82"
 imap = "3.0.0-alpha.14"
 mail-parser = "0.9.4"
 calamine = "0.26.1"
 tl = "0.7.8"
 regex = "1.10.6"
+serde_json = "1.0.135"
 actix-cors = "0.7"
+uuid = { version = "1.11.0", features = ["serde"] }
+sqlx = { version = "0.8.3", features = ["postgres", "uuid", "chrono"] }

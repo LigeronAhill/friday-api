@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
-use tracing::info;
-
 use crate::{
-    models::{CurrenciesFromCbr, Currency, CurrencyDTO},
-    storage::Storage,
+    models::Currency,
     Result,
 };
+use serde::Deserialize;
+use std::collections::HashMap;
+use tracing::info;
 
 // url для получения курсов валют
 const CBR_URI: &str = "https://www.cbr-xml-daily.ru/daily_json.js";
@@ -17,29 +15,56 @@ pub struct CurrencyService {
     /// клиент для отправки запросов
     client: reqwest::Client,
     /// база данных, имплементирующая необходимые методы
-    storage: Arc<Storage>,
+    storage: crate::storage::CurrencyStorage,
 }
+#[derive(Deserialize)]
+struct CurrencyInput {
+    #[serde(rename = "CharCode")]
+    char_code: String,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Value")]
+    value: f64,
+}
+impl From<CurrencyInput> for Currency {
+    fn from(input: CurrencyInput) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            name: input.name,
+            char_code: input.char_code,
+            rate: input.value,
+            updated: chrono::Utc::now(),
+        }
+    }
+}
+
 impl CurrencyService {
     /// создание нового экземпляра слуюбы валют
-    pub fn new(storage: Arc<Storage>) -> Self {
+    pub fn new(storage: crate::storage::CurrencyStorage) -> Self {
         let client = reqwest::Client::builder().gzip(true).build().unwrap();
         Self { client, storage }
     }
     /// обновление курсов валют в базе данных
     pub async fn update_currencies(&self) -> Result<()> {
-        let response: CurrenciesFromCbr = self.client.get(CBR_URI).send().await?.json().await?;
-        let currencies = convert(response);
-        for currency in currencies {
-            self.storage.insert_currency(currency).await?;
-        }
+        let response: serde_json::Value = self
+            .client
+            .get(CBR_URI)
+            .send()
+            .await?
+            .json()
+            .await?;
+        let valutes: HashMap<String, CurrencyInput> = response.get("Valute").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+        let currencies: Vec<Currency> = valutes.into_values().map(Currency::from).collect();
+        let updated = self.storage.update(currencies).await?;
+        info!("Обновлено {updated} курсов валют");
         Ok(())
     }
-    pub async fn get_currencies(&self) -> Result<Vec<Currency>> {
-        let res = self.storage.get_all_currencies().await?;
+    pub async fn get(&self) -> Result<Vec<Currency>> {
+        let res = self.storage.get_all().await?;
         Ok(res)
     }
-    pub async fn find_currency(&self, char_code: &str) -> Result<Option<Currency>> {
-        self.storage.get_currency_by_char_code(char_code).await
+    pub async fn find(&self, char_code: &str) -> Result<Option<Currency>> {
+        self.storage.get_by_char_code(char_code).await
     }
     pub async fn run(&self) {
         loop {
@@ -65,11 +90,4 @@ impl CurrencyService {
             }
         }
     }
-}
-fn convert(input: CurrenciesFromCbr) -> Vec<CurrencyDTO> {
-    let gbp = CurrencyDTO::from(input.valute.gbp);
-    let usd = CurrencyDTO::from(input.valute.usd);
-    let eur = CurrencyDTO::from(input.valute.eur);
-    let cny = CurrencyDTO::from(input.valute.cny);
-    vec![gbp, usd, eur, cny]
 }

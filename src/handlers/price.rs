@@ -1,11 +1,10 @@
 use std::io::{Cursor, Read};
 
+use crate::models::{AppState, PriceItem};
 use actix_multipart::form::{tempfile::TempFile, MultipartForm};
-use actix_web::{get, post, web, HttpResponse};
+use actix_web::{get, web, HttpResponse};
 use calamine::{open_workbook_auto_from_rs, DataType, Reader};
 use serde::Deserialize;
-
-use crate::models::{AppState, PriceItem};
 
 #[derive(Deserialize)]
 struct Query {
@@ -18,11 +17,11 @@ pub async fn get_price(
     query: Option<web::Query<Query>>,
 ) -> HttpResponse {
     match query {
-        Some(q) => match state.storage.find_price(q.search.clone()).await {
+        Some(q) => match state.price_service.find(q.search.clone()).await {
             Ok(r) => HttpResponse::Ok().json(r),
             Err(e) => HttpResponse::InternalServerError().json(e),
         },
-        None => match state.storage.read_all_price_items().await {
+        None => match state.price_service.get().await {
             Ok(r) => HttpResponse::Ok().json(r),
             Err(e) => HttpResponse::InternalServerError().json(e),
         },
@@ -38,22 +37,20 @@ pub async fn update_prices(
     state: web::Data<AppState>,
     MultipartForm(form): MultipartForm<Upload>,
 ) -> HttpResponse {
-    match parse_form(form) {
-        Ok(items) => match state.storage.update_prices(items).await {
-            Ok(_) => HttpResponse::Ok().finish(),
-            Err(e) => HttpResponse::InternalServerError().json(e),
-        },
+    match state.currency_service.get().await {
+        Ok(c) => {
+            match parse_form(form) {
+                Ok(items) => match state.price_service.update(items, c).await {
+                    Ok(_) => HttpResponse::Ok().finish(),
+                    Err(e) => HttpResponse::InternalServerError().json(e),
+                },
+                Err(e) => HttpResponse::InternalServerError().json(e),
+            }
+        }
         Err(e) => HttpResponse::InternalServerError().json(e),
     }
 }
 
-#[post("/price")]
-pub async fn update_price(state: web::Data<AppState>, form: web::Form<PriceItem>) -> HttpResponse {
-    match state.storage.update_price(form.0).await {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(e) => HttpResponse::InternalServerError().json(e),
-    }
-}
 
 fn parse_form(mut form: Upload) -> crate::Result<Vec<PriceItem>> {
     let mut result = Vec::new();

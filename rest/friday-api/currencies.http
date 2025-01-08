@@ -1,0 +1,4 @@
+### GET request to example server
+GET 0.0.0.0:8000/api/v1/currencies
+
+###

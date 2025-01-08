@@ -1,47 +1,40 @@
-use bson::doc;
-use futures::TryStreamExt;
-use tracing::info;
-
 use crate::{
-    models::{Currency, CurrencyDTO},
+    models::Currency,
     Result,
 };
 
-use super::Storage;
+#[derive(Clone)]
+pub struct CurrencyStorage {
+    pool: sqlx::PgPool,
+}
 
-impl Storage {
-    pub async fn insert_currency(&self, currency: CurrencyDTO) -> Result<()> {
-        let filter = doc! {
-            "char_code": &currency.char_code,
-            "name": &currency.name,
-        };
-        let update = doc! {
-            "$set": doc! {
-            "name": &currency.name,
-            "char_code": &currency.char_code,
-            "rate": &currency.rate,
-            "updated": &currency.updated,
-            },
-        };
-        let name = currency.name;
-        self.currencies
-            .update_one(filter, update)
-            .upsert(true)
-            .await?;
-        info!("Обновила валюту {name}");
-        Ok(())
+
+impl CurrencyStorage {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self { pool }
     }
-    pub async fn get_currency_by_char_code(&self, char_code: &str) -> Result<Option<Currency>> {
-        let filter = doc! {"char_code": char_code};
-        let doc = self.currencies.find_one(filter).await?.map(Currency::from);
-        Ok(doc)
+    pub async fn get_all(&self) -> Result<Vec<Currency>> {
+        let query = "SELECT * FROM currency ORDER BY name DESC";
+        let results = sqlx::query_as::<_, Currency>(query).fetch_all(&self.pool).await?;
+        Ok(results)
     }
-    pub async fn get_all_currencies(&self) -> Result<Vec<Currency>> {
-        let mut cursor = self.currencies.find(doc! {}).await?;
-        let mut currencies = Vec::new();
-        while let Some(doc) = cursor.try_next().await? {
-            currencies.push(doc.into());
-        }
-        Ok(currencies)
+    pub async fn get_by_char_code(&self, code: &str) -> Result<Option<Currency>> {
+        let query = "SELECT * FROM currency WHERE code = $1";
+        let results = sqlx::query_as::<_, Currency>(query).bind(code).fetch_optional(&self.pool).await?;
+        Ok(results)
+    }
+    pub async fn update(&self, input: Vec<Currency>) -> Result<u64> {
+        let query_string = "INSERT INTO currencies(name, char_code, rate) ";
+        let mut query_builder = sqlx::QueryBuilder::new(query_string);
+        query_builder.push_values(input, |mut b, currency| {
+            b.push_bind(currency.name)
+                .push_bind(currency.char_code)
+                .push_bind(currency.rate);
+        });
+        query_builder.push(" ON CONFLICT(char_code) DO UPDATE SET rate = EXCLUDED.rate, updated = now();");
+        let query = query_builder.build();
+        let results = query.execute(&self.pool).await?;
+        let rows_affected = results.rows_affected();
+        Ok(rows_affected)
     }
 }

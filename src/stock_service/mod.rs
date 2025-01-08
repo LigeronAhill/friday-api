@@ -1,25 +1,26 @@
 mod mail_client;
 mod parser;
 mod web_spider;
-use std::sync::Arc;
 
-use crate::{storage::Storage, Result};
+use crate::models::Stock;
+use crate::Result;
 use mail_client::MailClient;
 use tokio::time::sleep;
 use tracing::{error, info};
 use web_spider::Spider;
 
 pub type FetchMap =
-    std::collections::HashMap<String, (Vec<Vec<u8>>, chrono::DateTime<chrono::Utc>)>;
+std::collections::HashMap<String, (Vec<Vec<u8>>, chrono::DateTime<chrono::Utc>)>;
 
+#[derive(Clone)]
 pub struct StockService {
     mail_client: MailClient,
     spider: Spider,
-    storage: Arc<Storage>,
+    storage: crate::storage::StockStorage,
 }
 
 impl StockService {
-    pub fn new(secrets: shuttle_runtime::SecretStore, storage: Arc<Storage>) -> Result<Self> {
+    pub fn new(secrets: shuttle_runtime::SecretStore, storage: crate::storage::StockStorage) -> Result<Self> {
         let ort_user = secrets
             .get("ORTGRAPH_USERNAME")
             .expect("не нашла ORTHGRAPH_USER в Secrets.toml");
@@ -87,10 +88,16 @@ impl StockService {
             }
         });
         while let Some(f) = rx.recv().await {
-            match self.storage.update_stock(f).await {
-                Ok(_) => info!("Сток обновлен"),
+            match self.storage.update(f).await {
+                Ok(_) => info!("Сток обновлен {}", chrono::Utc::now().to_rfc3339()),
                 Err(e) => error!("Ошибка обновления стока в базе данных:\n{e:?}"),
             }
         }
+    }
+    pub async fn find(&self, search_string: String) -> Result<Vec<Stock>> {
+        self.storage.find(search_string).await
+    }
+    pub async fn get(&self, limit: i32, offset: i32) -> Result<Vec<Stock>> {
+        self.storage.get(limit, offset).await
     }
 }

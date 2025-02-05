@@ -10,7 +10,7 @@ impl StockStorage {
     pub fn new(pool: sqlx::PgPool) -> StockStorage {
         StockStorage { pool }
     }
-    pub async fn update(&self, input: Vec<Stock>) -> Result<(u64, u64)> {
+    pub async fn update(&self, input: &Vec<Stock>) -> Result<(u64, u64)> {
         let mut suppliers = HashSet::new();
         for supplier in input.iter().map(|s| s.supplier.clone()) {
             suppliers.insert(supplier);
@@ -25,8 +25,8 @@ impl StockStorage {
         let query_string = "INSERT INTO stock(supplier, name, stock) ";
         let mut query_builder = sqlx::QueryBuilder::new(query_string);
         query_builder.push_values(input, |mut b, stock| {
-            b.push_bind(stock.supplier)
-                .push_bind(stock.name)
+            b.push_bind(&stock.supplier)
+                .push_bind(&stock.name)
                 .push_bind(stock.stock);
         });
         let query = query_builder.build();
@@ -37,12 +37,30 @@ impl StockStorage {
     }
     pub async fn get(&self, limit: i32, offset: i32) -> Result<Vec<Stock>> {
         let query = "SELECT * FROM stock LIMIT $1 OFFSET $2";
-        let results = sqlx::query_as::<_, Stock>(query).bind(limit).bind(offset).fetch_all(&self.pool).await?;
+        let results = sqlx::query_as::<_, Stock>(query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(results)
     }
     pub async fn find(&self, search_string: String) -> Result<Vec<Stock>> {
-        let query = "SELECT * FROM stock WHERE name ILIKE $1";
-        let results = sqlx::query_as::<_, Stock>(query).bind(format!("%{search_string}%")).fetch_all(&self.pool).await?;
+        let mut re = String::from("[А-я\\s]*.*");
+        let slice = search_string.split_whitespace().collect::<Vec<_>>();
+        let l = slice.len();
+        for (i, w) in slice.into_iter().enumerate() {
+            re.push_str(w);
+            if l > 2 && i == l - 1 {
+                re.push_str("?[\\s|,|m|M|м|М]*.*");
+            } else {
+                re.push_str("[\\s|,|-]*.*");
+            }
+        }
+        let query = "SELECT * FROM stock WHERE name ~* $1 LIMIT 100";
+        let results = sqlx::query_as::<_, Stock>(query)
+            .bind(re)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(results)
     }
 }

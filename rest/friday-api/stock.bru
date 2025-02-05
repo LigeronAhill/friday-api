@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: 127.0.0.1:8000/api/v1/stock
+  url: 127.0.0.1:8000/api/v1/stock?search=AW LOOP 2795 4
   body: none
   auth: none
 }
 
 params:query {
-  ~search: maserati
+  search: AW LOOP 2795 4
+  ~offset: 1
   ~limit: 10
-  ~offset: 12
 }

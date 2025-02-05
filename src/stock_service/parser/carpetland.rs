@@ -7,6 +7,8 @@ use tracing::error;
 
 use crate::models::Stock;
 
+use super::clear_string;
+
 pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
@@ -46,10 +48,10 @@ async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<
             let width = row.get(3).map(|d| d.to_string()).unwrap_or_default();
             let name = format!("{brand} {collection} {color} {width}");
             let item = Stock {
-                name: name.clone(),
+                name: clear_string(&name),
                 stock,
                 supplier: "carpetland".to_string(),
-                updated: received.into(),
+                updated: received,
                 id: uuid::Uuid::new_v4(),
             };
             if tx.send(item).is_err() {

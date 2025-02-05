@@ -1,22 +1,11 @@
-use crate::{
-    models::Currency,
-    Result,
-};
+use crate::{models::Currency, storage::CurrencyStorage, utils::pause};
 use serde::Deserialize;
-use std::collections::HashMap;
-use tracing::info;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 // url для получения курсов валют
 const CBR_URI: &str = "https://www.cbr-xml-daily.ru/daily_json.js";
 
-#[derive(Clone)]
-/// Служба для работы с курсами валют
-pub struct CurrencyService {
-    /// клиент для отправки запросов
-    client: reqwest::Client,
-    /// база данных, имплементирующая необходимые методы
-    storage: crate::storage::CurrencyStorage,
-}
 #[derive(Deserialize)]
 struct CurrencyInput {
     #[serde(rename = "CharCode")]
@@ -38,55 +27,60 @@ impl From<CurrencyInput> for Currency {
     }
 }
 
-impl CurrencyService {
-    /// создание нового экземпляра слуюбы валют
-    pub fn new(storage: crate::storage::CurrencyStorage) -> Self {
-        let client = reqwest::Client::builder().gzip(true).build().unwrap();
-        Self { client, storage }
-    }
-    /// обновление курсов валют в базе данных
-    pub async fn update_currencies(&self) -> Result<()> {
-        let response: serde_json::Value = self
-            .client
-            .get(CBR_URI)
-            .send()
-            .await?
-            .json()
-            .await?;
-        let valutes: HashMap<String, CurrencyInput> = response.get("Valute").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
-        let currencies: Vec<Currency> = valutes.into_values().map(Currency::from).collect();
-        let updated = self.storage.update(currencies).await?;
-        info!("Обновлено {updated} курсов валют");
-        Ok(())
-    }
-    pub async fn get(&self) -> Result<Vec<Currency>> {
-        let res = self.storage.get_all().await?;
-        Ok(res)
-    }
-    pub async fn find(&self, char_code: &str) -> Result<Option<Currency>> {
-        self.storage.get_by_char_code(char_code).await
-    }
-    pub async fn run(&self) {
-        loop {
-            info!("Обновляю курсы валют");
-            match self.update_currencies().await {
-                Ok(_) => {
-                    let now = chrono::Local::now();
-                    let tomorrow = now
-                        .checked_add_days(chrono::Days::new(1))
+pub async fn run(storage: Arc<CurrencyStorage>) {
+    let (tx, rx) = unbounded_channel::<Vec<Currency>>();
+    tokio::spawn(generator(tx));
+    saver(rx, storage).await;
+}
+async fn generator(tx: UnboundedSender<Vec<Currency>>) {
+    let client = reqwest::Client::builder().gzip(true).build().unwrap();
+    loop {
+        tracing::info!("Начинаю запрос курсов валют");
+        match client.get(CBR_URI).send().await {
+            Ok(response) => match response.json::<serde_json::Value>().await {
+                Ok(v) => {
+                    let valutes: HashMap<String, CurrencyInput> = v
+                        .get("Valute")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
                         .unwrap_or_default();
-                    info!(
-                        "Курсы валют обновлены {}. Пауза на 24 часа до {}",
-                        now.format("%d.%m.%Y в %T"),
-                        tomorrow.format("%d.%m.%Y в %T"),
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(60 * 60 * 24)).await;
+                    let currencies: Vec<Currency> =
+                        valutes.into_values().map(Currency::from).collect();
+                    let quantity = currencies.len();
+                    if !currencies.is_empty() {
+                        if tx.send(currencies).is_err() {
+                            tracing::error!("Не удалось отправить данные о курсах валют в канал");
+                        } else {
+                            tracing::info!("Получено {quantity} курсов валют, пауза на 4 часа");
+                            pause(4).await;
+                        }
+                    } else {
+                        tracing::error!("Получен пустой ответ на запрос курсов валют, попробую еще раз через час");
+                        pause(1).await;
+                    }
                 }
                 Err(e) => {
-                    info!("Возникла ошибка приобновлении курсов валют: {e:?}");
-                    info!("Попробую еще раз через 10 минут");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10 * 60)).await;
+                    tracing::error!(
+                        "Ошибка чтения ответа на запрос курсов валют: {e:?}\n Пауза на 1 час"
+                    );
+                    pause(1).await;
                 }
+            },
+            Err(e) => {
+                tracing::error!("Ошибка получения курсов валют: {e:?}\n Пауза на 1 час");
+                pause(1).await
+            }
+        }
+    }
+}
+
+async fn saver(mut rx: UnboundedReceiver<Vec<Currency>>, storage: Arc<CurrencyStorage>) {
+    while let Some(result) = rx.recv().await {
+        match storage.update(result).await {
+            Ok(updated) => {
+                tracing::info!("Обновлено {updated} курсов валют");
+            }
+            Err(e) => {
+                tracing::error!("Ошибка сохранения курсов валют: {e:?}");
             }
         }
     }

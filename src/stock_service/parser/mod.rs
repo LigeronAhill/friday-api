@@ -83,7 +83,7 @@ pub async fn parse(fetches: FetchMap) -> Vec<Stock> {
                             .unwrap_or_default(),
                         received,
                     )
-                        .await;
+                    .await;
                     if tx.send(res).is_err() {
                         error!("Ошибка при отправке результата парсинга в канал...");
                     }
@@ -97,4 +97,13 @@ pub async fn parse(fetches: FetchMap) -> Vec<Stock> {
         result.extend(m)
     }
     result
+}
+
+pub fn clear_string(input: impl AsRef<str>) -> String {
+    input
+        .as_ref()
+        .split_whitespace()
+        .map(|w| w.trim().to_uppercase())
+        .collect::<Vec<_>>()
+        .join(" ")
 }

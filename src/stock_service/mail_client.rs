@@ -6,6 +6,7 @@ use crate::Result;
 
 use super::FetchMap;
 const QUERY: &str = "RFC822";
+const UID_QUERY: &str = "UID";
 const INBOX: &str = "INBOX";
 
 #[derive(Clone)]
@@ -13,7 +14,7 @@ pub struct MailClient {
     user: String,
     pass: String,
     host: String,
-    from: usize,
+    last_fetched_uid: u32,
 }
 impl MailClient {
     pub fn new(user: String, pass: String, host: String) -> Result<MailClient> {
@@ -21,12 +22,24 @@ impl MailClient {
             user,
             pass,
             host,
-            from: 0,
+            last_fetched_uid: 0,
         };
         let mut session = mail_client.session()?;
         session.select(INBOX)?;
         let msg_count = session.search("ALL")?.len();
-        mail_client.from = msg_count - 300;
+        let range = format!("{count}", count = msg_count - 200);
+        let first_uid = session
+            .fetch(range, UID_QUERY)?
+            .iter()
+            .next()
+            .ok_or(crate::error::AppError::Custom(
+                "Ошибка при получении стартового UID".into(),
+            ))?
+            .uid
+            .ok_or(crate::error::AppError::Custom(
+                "Ошибка при получении стартового UID".into(),
+            ))?;
+        mail_client.last_fetched_uid = first_uid;
         session.logout()?;
         Ok(mail_client)
     }
@@ -43,16 +56,27 @@ impl MailClient {
         supmap.insert("vvolodin@opuscontract.ru", "opus");
         supmap.insert("sales@bratec-lis.com", "fox");
         supmap.insert("rassilka@fancyfloor.ru", "fancy");
-        // supmap.insert("sale8@fancy-floor.ru", "fancy");
         supmap.insert("ulyana.boyko@carpetland.ru", "carpetland");
         supmap.insert("dealer@kover-zefir.ru", "zefir");
         supmap.insert("almaz2008@yandex.ru", "fenix");
         let mut session = self.session()?;
         let msg_count = session.search("ALL")?.len();
-        let q = format!("{}:{msg_count}", self.from);
-        tracing::info!("Получаю письма с {} по {msg_count}", self.from);
-        let fetches = session.fetch(q, QUERY)?;
-        self.from = msg_count;
+        let last_uid_q = format!("{msg_count}");
+        let last_uid = session
+            .fetch(last_uid_q, UID_QUERY)?
+            .iter()
+            .next()
+            .ok_or(crate::error::AppError::Custom("NO LAST FETCH".into()))?
+            .uid
+            .ok_or(crate::error::AppError::Custom(
+                "Ошибка при получении последнего UID".into(),
+            ))?;
+        if self.last_fetched_uid == last_uid {
+            return Ok(std::collections::HashMap::new());
+        }
+        let q = format!("{first_uid}:{last_uid}", first_uid = self.last_fetched_uid);
+        let fetches = session.uid_fetch(q, QUERY)?;
+        self.last_fetched_uid = last_uid;
         let mut m = std::collections::HashMap::new();
         for fetch in fetches.iter() {
             let fetch_date = fetch.internal_date().map(|d| d.to_utc());

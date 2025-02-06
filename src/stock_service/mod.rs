@@ -166,7 +166,6 @@ pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorag
     let mail_client = MailClient::new(mail_user, mail_pass, mail_host)?;
     let spider = Spider::new(ort_user, ort_pass)?;
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::time::sleep(tokio::time::Duration::from_secs(5 * 60)).await;
     tokio::spawn(mail_generator(tx.clone(), mail_client));
     tokio::spawn(web_generator(tx, spider));
     router(rx, storage, ms_client, safira_woo_client, lc_woo_client).await?;

@@ -4,21 +4,29 @@ use crate::{
     models::ApiClients,
     utils::{convert_to_create, convert_to_update, pause, MsData, WooData},
 };
+use chrono::Timelike;
 use rust_woocommerce as woo;
 use tokio::sync::mpsc;
 
 pub async fn run(api_clients: ApiClients) {
     loop {
-        match MsData::get(api_clients.ms_client.clone()).await {
-            Ok(ms_data) => {
-                tokio::spawn(sync(ms_data.clone(), api_clients.safira_woo_client.clone()));
-                tokio::spawn(sync(ms_data, api_clients.lc_woo_client.clone()));
-                pause(24).await;
+        let now = chrono::Utc::now();
+        let hour = now.hour();
+        let mins = now.minute();
+        if hour == 0 && mins == 0 {
+            match MsData::get(api_clients.ms_client.clone()).await {
+                Ok(ms_data) => {
+                    tokio::spawn(sync(ms_data.clone(), api_clients.safira_woo_client.clone()));
+                    tokio::spawn(sync(ms_data, api_clients.lc_woo_client.clone()));
+                    pause(24).await;
+                }
+                Err(e) => {
+                    tracing::error!("Ошибка при получении данных из Мой Склад {e:?}");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                }
             }
-            Err(e) => {
-                tracing::error!("{e:?}");
-                pause(1).await;
-            }
+        } else {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
     }
 }

@@ -89,6 +89,7 @@ fn get_stock_attribute(
                     .is_some_and(|a| {
                         let val = match a.value.clone() {
                             rust_moysklad::AttributeValue::Custom(v) => v.name,
+                            rust_moysklad::AttributeValue::String(v) => v,
                             _ => String::new(),
                         };
                         val == needed_value
@@ -112,6 +113,7 @@ fn is_in_stock_in_ms(ms_product: &rust_moysklad::Product) -> bool {
         .map(|a| {
             let val = match a.value.clone() {
                 rust_moysklad::AttributeValue::Custom(v) => v.name,
+                rust_moysklad::AttributeValue::String(v) => v,
                 _ => String::new(),
             };
             val == IN_STOCK

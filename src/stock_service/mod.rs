@@ -93,7 +93,7 @@ async fn router(
                 tracing::error!("Ошибка отправки остатков в канал для сохранения в БД");
             }
         });
-        let limit = 1000;
+        let limit = 100;
         let mut offset = 0;
         let mut current_stock = Vec::new();
         loop {

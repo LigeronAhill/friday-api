@@ -9,15 +9,17 @@ pub async fn saver(
     safira_woo_client: Arc<woo::ApiClient>,
 ) {
     while let Some(result) = sku_stock_receiver.recv().await {
-        let safira_client = safira_woo_client.clone();
-        let stock = result.clone();
-        tokio::spawn(update_stock(safira_client, stock));
+        tokio::spawn(update_stock(safira_woo_client.clone(), result));
     }
 }
 
 async fn update_stock(client: Arc<woo::ApiClient>, stock: Vec<Stock>) {
     let host = client.base_url();
     let woo_products: Vec<woo::Product> = client.list_all().await.unwrap_or_default();
+    tracing::info!(
+        "Получено {len} продуктов из {host}",
+        len = woo_products.len()
+    );
     let mut products_to_update = Vec::new();
     for product in woo_products {
         let sku = product.sku.clone();
@@ -31,6 +33,10 @@ async fn update_stock(client: Arc<woo::ApiClient>, stock: Vec<Stock>) {
     if products_to_update.is_empty() {
         tracing::info!("Нет остатков для обновления на сайте {host}");
     } else {
+        tracing::info!(
+            "Обновляю остатки продуктов на сайте {host} -> {len}",
+            len = products_to_update.len()
+        );
         let result: Vec<woo::Product> = client
             .batch_update(products_to_update)
             .await

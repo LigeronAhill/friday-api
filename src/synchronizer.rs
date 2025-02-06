@@ -3,14 +3,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{
+    models::Stock,
     storage::StockStorage,
-    utils::{convert_to_create, convert_to_update, pause, MsData, WooData},
+    utils::{convert_to_create, convert_to_update, get_quantity, pause, MsData, WooData},
 };
 use chrono::{Datelike, TimeZone};
 use rust_moysklad as ms;
 use rust_woocommerce as woo;
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, oneshot};
+const STOCK_ATTRIBUTE_NAME: &str = "Наличие";
+const IN_STOCK: &str = "В наличии (2-3 раб. дня)";
+const OUT_OF_STOCK: &str = "Под заказ (5-8 недель)";
 
 pub struct Synchronizer {
     ms_client: Arc<ms::MoySkladApiClient>,
@@ -33,11 +37,6 @@ impl Synchronizer {
         })
     }
     async fn sync(self: Arc<Self>) -> Result<()> {
-        let (ms_data, safira_data, lc_data) = tokio::join!(
-            self.clone().get_ms_data(),
-            self.clone().get_woo_data(self.safira_client.base_url()),
-            self.clone().get_woo_data(self.lc_client.base_url()),
-        );
         let mut stock = Vec::new();
         let limit = 500;
         let mut offset = 0;
@@ -55,7 +54,14 @@ impl Synchronizer {
                 offset += limit;
             }
         }
+        let (ms_data, safira_data, lc_data) = tokio::join!(
+            self.clone().get_ms_data(),
+            self.clone().get_woo_data(self.safira_client.base_url()),
+            self.clone().get_woo_data(self.lc_client.base_url()),
+        );
         let ms_data = ms_data?;
+        let products = ms_data.products.values().cloned().collect::<Vec<_>>();
+        self.clone().update_ms_stock(&stock, &products).await?;
         let safira_data = safira_data?;
         let lc_data = lc_data?;
         let woos = vec![
@@ -153,6 +159,63 @@ impl Synchronizer {
             if let Err(e) = result {
                 tracing::error!("{e:?}");
             }
+        }
+        Ok(())
+    }
+    async fn update_ms_stock(
+        self: Arc<Self>,
+        stock: &[Stock],
+        products: &[rust_moysklad::Product],
+    ) -> Result<()> {
+        let in_stock_attribute = get_stock_attribute(products, IN_STOCK)
+            .ok_or(anyhow::anyhow!("Не найден атрибут В наличии"))?;
+        let out_of_stock_attribute = get_stock_attribute(products, OUT_OF_STOCK)
+            .ok_or(anyhow::anyhow!("Не найден атрибут Нет в наличии"))?;
+        let products_to_update = products
+            .iter()
+            .flat_map(|ms_product| {
+                let ms_sku = ms_product.article.clone()?;
+                let meta = ms_product.meta.clone();
+                let ms_attributes = ms_product.attributes.clone()?;
+                let stock_attr = ms_attributes
+                    .iter()
+                    .find(|a| a.name == STOCK_ATTRIBUTE_NAME)?;
+                let value = match stock_attr.value.clone() {
+                    rust_moysklad::AttributeValue::Custom(v) => v.name,
+                    _ => String::new(),
+                };
+                let is_in_stock = get_quantity(&ms_sku, stock) > 2.0;
+                if !is_in_stock && value != OUT_OF_STOCK {
+                    let upd = rust_moysklad::Product::update()
+                        .meta(meta)
+                        .attribute(out_of_stock_attribute.clone())
+                        .build();
+                    Some(upd)
+                } else if is_in_stock && value != IN_STOCK {
+                    let upd = rust_moysklad::Product::update()
+                        .meta(meta)
+                        .attribute(in_stock_attribute.clone())
+                        .build();
+                    Some(upd)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if !products_to_update.is_empty() {
+            tracing::info!(
+                "Получилось {} продуктов для обновления в Мой Склад",
+                products_to_update.len()
+            );
+            let updated: Vec<rust_moysklad::Product> = self
+                .clone()
+                .ms_client
+                .clone()
+                .batch_create_update(products_to_update)
+                .await?;
+            tracing::info!("Обновлено {} продуктов в Мой Склад", updated.len());
+        } else {
+            tracing::info!("Наличие в Мой Склад актуально")
         }
         Ok(())
     }
@@ -285,6 +348,33 @@ impl Synchronizer {
             }
         }
     }
+}
+fn get_stock_attribute(
+    ms_products: &[rust_moysklad::Product],
+    needed_value: &str,
+) -> Option<rust_moysklad::Attribute> {
+    ms_products
+        .iter()
+        .find(|p| {
+            p.attributes.clone().is_some_and(|attributes| {
+                attributes
+                    .iter()
+                    .find(|a| a.name == STOCK_ATTRIBUTE_NAME)
+                    .is_some_and(|a| {
+                        let val = match a.value.clone() {
+                            rust_moysklad::AttributeValue::Custom(v) => v.name,
+                            _ => String::new(),
+                        };
+                        val == needed_value
+                    })
+            })
+        })
+        .and_then(|p| {
+            p.attributes
+                .clone()?
+                .into_iter()
+                .find(|a| a.name == STOCK_ATTRIBUTE_NAME)
+        })
 }
 // pub async fn run(api_clients: ApiClients) {
 //     loop {

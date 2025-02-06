@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
-    sync::Arc,
 };
 
 use rust_moysklad as ms;
@@ -9,7 +8,6 @@ use rust_woocommerce as woo;
 use serde::Serialize;
 
 use crate::models::Stock;
-use crate::AppError;
 
 pub async fn pause(hours: u64) {
     let secs = 60 * 60 * hours;
@@ -228,6 +226,7 @@ pub fn convert_to_update(
         .backorders(woo::BackordersStatus::Yes)
         .manage_stock()
         .stock_quantity(quantity)
+        .stock_status(woo::StockStatus::Onbackorder)
         .weight(weight);
     for cat in woo_product.categories.iter() {
         result.categories(cat.id);
@@ -237,9 +236,6 @@ pub fn convert_to_update(
     let mut height = 1.0;
     let mut min_quantity = 1.0;
     let mut quantity_step = 1.0;
-    result
-        .stock_status(woo::StockStatus::Onbackorder)
-        .stock_quantity(0);
     if ms_sale_price > 1.0 {
         result.sale_price(format!("{ms_sale_price:.2}"));
     } else {
@@ -329,67 +325,12 @@ pub struct MsData {
     pub uoms: Vec<ms::Uom>,
     pub products: HashMap<String, ms::Product>,
 }
-impl MsData {
-    pub async fn get(client: Arc<ms::MoySkladApiClient>) -> crate::Result<Self> {
-        let (currencies_result, countries_result, uoms_result, products_result) = tokio::join!(
-            client.get_all::<ms::Currency>(),
-            client.get_all::<ms::Country>(),
-            client.get_all::<ms::Uom>(),
-            client.get_all::<ms::Product>(),
-        );
-        let currencies = currencies_result.map_err(|e| AppError::Custom(e.to_string()))?;
-        let countries = countries_result.map_err(|e| AppError::Custom(e.to_string()))?;
-        let uoms = uoms_result.map_err(|e| AppError::Custom(e.to_string()))?;
-        let products_vec = products_result.map_err(|e| AppError::Custom(e.to_string()))?;
-        let mut products = HashMap::new();
-        for product in products_vec {
-            if let Some(sku) = product.article.clone() {
-                products.insert(sku.to_uppercase(), product.clone());
-            }
-        }
-        Ok(MsData {
-            currencies,
-            countries,
-            uoms,
-            products,
-        })
-    }
-}
 
 #[derive(Clone)]
 pub struct WooData {
     pub products: HashMap<String, woo::Product>,
     pub attributes: HashMap<String, woo::Attribute>,
     pub categories: HashMap<String, woo::Category>,
-}
-impl WooData {
-    pub async fn get(client: Arc<woo::ApiClient>) -> crate::Result<Self> {
-        let (products, attributes, categories) = tokio::join!(
-            client.list_all::<woo::Product>(),
-            client.list_all::<woo::Attribute>(),
-            client.list_all::<woo::Category>(),
-        );
-        let products_vec = products.map_err(|e| AppError::Custom(e.to_string()))?;
-        let attributes_vec = attributes.map_err(|e| AppError::Custom(e.to_string()))?;
-        let categories_vec = categories.map_err(|e| AppError::Custom(e.to_string()))?;
-        let mut products = HashMap::new();
-        for product in products_vec {
-            products.insert(product.sku.to_uppercase(), product);
-        }
-        let mut attributes = HashMap::new();
-        for attribute in attributes_vec {
-            attributes.insert(attribute.name.clone(), attribute);
-        }
-        let mut categories = HashMap::new();
-        for category in categories_vec {
-            categories.insert(category.name.clone(), category);
-        }
-        Ok(WooData {
-            products,
-            attributes,
-            categories,
-        })
-    }
 }
 
 #[derive(PartialEq, Clone)]

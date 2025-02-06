@@ -37,17 +37,17 @@ async fn processor(
                     .await
                     {
                         has_errors = true;
-                        tracing::error!("{e:?}");
+                        tracing::warn!("{e:?}");
                     }
                 }
                 Err(e) => {
                     has_errors = true;
-                    tracing::error!("{e:?}");
+                    tracing::warn!("{e:?}");
                 }
             },
             Err(e) => {
                 has_errors = true;
-                tracing::error!("{e:?}");
+                tracing::warn!("{e:?}");
             }
         }
         if !has_errors {
@@ -55,7 +55,7 @@ async fn processor(
                 match events_storage.process(event.id).await {
                     Ok(_) => tracing::info!("Событие {id} обработано", id = event.id),
                     Err(e) => {
-                        tracing::error!("Ошибка при обработке события {id}: {e:?}", id = event.id)
+                        tracing::warn!("Ошибка при обработке события {id}: {e:?}", id = event.id)
                     }
                 }
             }
@@ -157,7 +157,7 @@ async fn generator(tx: UnboundedSender<Vec<MsEvent>>, events_storage: Arc<Events
         match events_storage.get().await {
             Ok(events) => {
                 if !events.is_empty() && tx.send(events).is_err() {
-                    tracing::error!("Ошибка отправки событий в очередь");
+                    tracing::warn!("Ошибка отправки событий в очередь");
                 }
             }
             Err(e) => {

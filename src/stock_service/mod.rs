@@ -8,7 +8,6 @@ mod woo;
 use std::sync::Arc;
 
 use crate::storage::StockStorage;
-use crate::Result;
 use crate::{models::Stock, utils::pause};
 use mail_client::MailClient;
 use rust_moysklad::MoySkladApiClient;
@@ -79,13 +78,20 @@ async fn router(
     storage: Arc<StockStorage>,
     ms_client: Arc<MoySkladApiClient>,
     safira_woo_client: Arc<rust_woocommerce::ApiClient>,
-) -> Result<()> {
+) {
     let (db_sender, db_receiver) = tokio::sync::mpsc::unbounded_channel();
     let (ms_sender, ms_receiver) = tokio::sync::mpsc::unbounded_channel();
     let (woo_sender, woo_receiver) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(db::saver(db_receiver, storage.clone()));
-    tokio::spawn(ms::saver(ms_receiver, ms_client.clone()));
-    tokio::spawn(woo::saver(woo_receiver, safira_woo_client));
+    let storage_instance = storage.clone();
+    tokio::spawn(async move {
+        db::saver(db_receiver, storage_instance).await;
+    });
+    tokio::spawn(async move {
+        ms::saver(ms_receiver, ms_client.clone()).await;
+    });
+    tokio::spawn(async move {
+        woo::saver(woo_receiver, safira_woo_client).await;
+    });
     while let Some(stock) = rx.recv().await {
         let db_sender = db_sender.clone();
         tokio::spawn(async move {
@@ -93,11 +99,11 @@ async fn router(
                 tracing::error!("Ошибка отправки остатков в канал для сохранения в БД");
             }
         });
-        let limit = 100;
+        let limit = 500;
         let mut offset = 0;
         let mut current_stock = Vec::new();
         loop {
-            let temp_current_stock = storage.get(limit, offset).await?;
+            let temp_current_stock = storage.get(limit, offset).await.unwrap_or_default();
             if temp_current_stock.is_empty() {
                 break;
             } else {
@@ -122,10 +128,9 @@ async fn router(
     drop(db_sender);
     drop(ms_sender);
     drop(woo_sender);
-    Ok(())
 }
 
-pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorage>) -> Result<()> {
+pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorage>) {
     let ort_user = secrets
         .get("ORTGRAPH_USERNAME")
         .expect("не нашла ORTHGRAPH_USER в Secrets.toml");
@@ -143,11 +148,13 @@ pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorag
         .expect("не нашла MAIL_PASS в Secrets.toml");
     let ms_token = secrets.get("MS_TOKEN").expect("MS_TOKEN not set");
     let ms_client = Arc::new(
-        rust_moysklad::MoySkladApiClient::new(ms_token).map_err(|e| {
-            let error = format!("{e:?}");
-            tracing::error!(error);
-            crate::error::AppError::Custom(error)
-        })?,
+        rust_moysklad::MoySkladApiClient::new(ms_token)
+            .map_err(|e| {
+                let error = format!("{e:?}");
+                tracing::error!(error);
+                crate::error::AppError::Custom(error)
+            })
+            .expect("ms_client init error"),
     );
     let safira_ck = secrets.get("SAFIRA_CK").expect("SAFIRA_CK not set");
     let safira_cs = secrets.get("SAFIRA_CS").expect("SAFIRA_CS not set");
@@ -156,11 +163,16 @@ pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorag
         rust_woocommerce::ApiClient::init(safira_host, safira_ck, safira_cs)
             .expect("safira_woo_client init error"),
     );
-    let mail_client = MailClient::new(mail_user, mail_pass, mail_host)?;
-    let spider = Spider::new(ort_user, ort_pass)?;
+    let mail_client =
+        MailClient::new(mail_user, mail_pass, mail_host).expect("Error init mail_client");
+    let spider = Spider::new(ort_user, ort_pass).expect("Error init spider");
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(mail_generator(tx.clone(), mail_client));
-    tokio::spawn(web_generator(tx, spider));
-    router(rx, storage, ms_client, safira_woo_client).await?;
-    Ok(())
+    let mail_tx = tx.clone();
+    tokio::spawn(async move {
+        mail_generator(mail_tx, mail_client).await;
+    });
+    tokio::spawn(async move {
+        web_generator(tx, spider).await;
+    });
+    router(rx, storage, ms_client, safira_woo_client).await;
 }

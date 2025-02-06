@@ -12,11 +12,17 @@ use crate::{
 pub async fn run(api_clients: ApiClients, events_storage: Arc<EventsStorage>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     // generator
-    tokio::spawn(generator(tx, events_storage.clone()));
+    let esg = events_storage.clone();
+    tokio::spawn(async move {
+        generator(tx, esg).await;
+    });
     // cleaner
-    tokio::spawn(clean(events_storage.clone()));
+    let esc = events_storage.clone();
+    tokio::spawn(async move {
+        clean(esc).await;
+    });
     // processors
-    processor(rx, api_clients, events_storage.clone()).await;
+    processor(rx, api_clients, events_storage).await;
 }
 async fn processor(
     mut rx: UnboundedReceiver<Vec<MsEvent>>,

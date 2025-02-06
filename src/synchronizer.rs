@@ -28,8 +28,15 @@ pub async fn run(api_clients: ApiClients) {
             tracing::info!("Начинаю синхронизацию");
             match MsData::get(api_clients.ms_client.clone()).await {
                 Ok(ms_data) => {
-                    tokio::spawn(sync(ms_data.clone(), api_clients.safira_woo_client.clone()));
-                    tokio::spawn(sync(ms_data, api_clients.lc_woo_client.clone()));
+                    let ms_data_instance = ms_data.clone();
+                    let swc = api_clients.safira_woo_client.clone();
+                    tokio::spawn(async move {
+                        sync(ms_data_instance, swc).await;
+                    });
+                    let lwc = api_clients.lc_woo_client.clone();
+                    tokio::spawn(async move {
+                        sync(ms_data, lwc).await;
+                    });
                 }
                 Err(e) => {
                     tracing::error!("Ошибка при получении данных из Мой Склад {e:?}");

@@ -23,36 +23,51 @@ impl Service {
         Self { pool, secrets }
     }
     pub async fn run(&self, addr: std::net::SocketAddr) -> anyhow::Result<()> {
-        sqlx::migrate!()
-            .run(&self.pool)
-            .await
-            .expect("Failed to run migrations");
-        info!("Инициализирую базу данных валют");
-        let currency_storage = Arc::new(CurrencyStorage::new(self.pool.clone()).await?);
-        info!("База данных валют готова к использованию");
-        info!("Запускаю службу обновления курсов валют");
-        tokio::spawn(currency_service::run(currency_storage.clone()));
-        info!("Инициализирую базу данных остатков");
-        let stock_storage = Arc::new(StockStorage::new(self.pool.clone()));
-        info!("Запускаю службу обновления остатков");
-        tokio::spawn(stock_service::run(
-            self.secrets.clone(),
-            stock_storage.clone(),
-        ));
-        let state = models::AppState::new(currency_storage.clone(), stock_storage.clone());
-        let events_storage = Arc::new(storage::EventsStorage::new(self.pool.clone()));
-        let api_clients = models::ApiClients::new(self.secrets.clone())?;
-        tokio::spawn(event_processor::run(
-            api_clients.clone(),
-            events_storage.clone(),
-        ));
-        tokio::spawn(synchronizer::run(api_clients));
-        // TODO: telegram bot
-        // TODO: price service (input from telegram and API, currencies from MS)
-        // TODO: update prices in MS
-        let router = routes::init(state, events_storage.clone());
-        let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, router).await?;
+        let tables = [
+            "ms_events",
+            "prices",
+            "stock",
+            "currencies",
+            "_sqlx_migrations",
+        ];
+        for table in tables {
+            sqlx::query(&format!("DROP TABLE IF EXISTS {table}"))
+                .execute(&self.pool)
+                .await?;
+        }
+        if sqlx::migrate!().run(&self.pool).await.is_ok() {
+            info!("Инициализирую базу данных валют");
+            let currency_storage = Arc::new(CurrencyStorage::new(self.pool.clone()).await?);
+            info!("База данных валют готова к использованию");
+            info!("Запускаю службу обновления курсов валют");
+            let currency_storage_instance = currency_storage.clone();
+            tokio::spawn(async move { currency_service::run(currency_storage_instance).await });
+            info!("Инициализирую базу данных остатков");
+            let stock_storage = Arc::new(StockStorage::new(self.pool.clone()));
+            info!("Запускаю службу обновления остатков");
+            let stock_storage_instance = Arc::new(StockStorage::new(self.pool.clone()));
+            let secrets_instance = self.secrets.clone();
+            tokio::spawn(async move {
+                stock_service::run(secrets_instance, stock_storage_instance).await;
+            });
+            let state = models::AppState::new(currency_storage.clone(), stock_storage.clone());
+            let events_storage = Arc::new(storage::EventsStorage::new(self.pool.clone()));
+            let api_clients = models::ApiClients::new(self.secrets.clone())?;
+            let api_clients_instance = api_clients.clone();
+            let enevts_storage_instance = events_storage.clone();
+            tokio::spawn(async move {
+                event_processor::run(api_clients_instance, enevts_storage_instance).await;
+            });
+            tokio::spawn(async move {
+                synchronizer::run(api_clients).await;
+            });
+            // TODO: telegram bot
+            // TODO: price service (input from telegram and API, currencies from MS)
+            // TODO: update prices in MS
+            let router = routes::init(state, events_storage);
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            axum::serve(listener, router).await?;
+        }
         Ok(())
     }
 }

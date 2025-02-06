@@ -29,7 +29,9 @@ impl From<CurrencyInput> for Currency {
 
 pub async fn run(storage: Arc<CurrencyStorage>) {
     let (tx, rx) = unbounded_channel::<Vec<Currency>>();
-    tokio::spawn(generator(tx));
+    tokio::spawn(async move {
+        generator(tx).await;
+    });
     saver(rx, storage).await;
 }
 async fn generator(tx: UnboundedSender<Vec<Currency>>) {

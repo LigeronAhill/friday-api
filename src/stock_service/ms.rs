@@ -17,6 +17,10 @@ pub async fn saver(mut rx: UnboundedReceiver<Vec<Stock>>, ms_client: Arc<MoySkla
 async fn update_ms_stock_attribute(ms_client: Arc<MoySkladApiClient>, stock: Vec<Stock>) {
     match ms_client.get_all::<rust_moysklad::Product>().await {
         Ok(ms_products) => {
+            if ms_products.is_empty() {
+                tracing::error!("Получен пустой список продуктов из Мой Склад");
+                return;
+            }
             if let Some(in_stock_attribute) = get_stock_attribute(&ms_products, IN_STOCK) {
                 if let Some(out_of_stock_attribute) =
                     get_stock_attribute(&ms_products, OUT_OF_STOCK)

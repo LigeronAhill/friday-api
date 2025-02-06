@@ -8,3 +8,6 @@ Secrets*.toml
 rest/friday-api/render
 .idea
 *.env
+/rest
+rest/
+rest

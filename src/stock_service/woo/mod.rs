@@ -7,15 +7,11 @@ use crate::models::Stock;
 pub async fn saver(
     mut sku_stock_receiver: UnboundedReceiver<Vec<Stock>>,
     safira_woo_client: Arc<woo::ApiClient>,
-    lc_woo_client: Arc<woo::ApiClient>,
 ) {
     while let Some(result) = sku_stock_receiver.recv().await {
         let safira_client = safira_woo_client.clone();
         let stock = result.clone();
         tokio::spawn(update_stock(safira_client, stock));
-        let lc_client = lc_woo_client.clone();
-        let stock = result.clone();
-        tokio::spawn(update_stock(lc_client, stock));
     }
 }
 

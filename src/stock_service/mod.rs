@@ -79,14 +79,13 @@ async fn router(
     storage: Arc<StockStorage>,
     ms_client: Arc<MoySkladApiClient>,
     safira_woo_client: Arc<rust_woocommerce::ApiClient>,
-    lc_woo_client: Arc<rust_woocommerce::ApiClient>,
 ) -> Result<()> {
     let (db_sender, db_receiver) = tokio::sync::mpsc::unbounded_channel();
     let (ms_sender, ms_receiver) = tokio::sync::mpsc::unbounded_channel();
     let (woo_sender, woo_receiver) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(db::saver(db_receiver, storage.clone()));
     tokio::spawn(ms::saver(ms_receiver, ms_client.clone()));
-    tokio::spawn(woo::saver(woo_receiver, safira_woo_client, lc_woo_client));
+    tokio::spawn(woo::saver(woo_receiver, safira_woo_client));
     while let Some(stock) = rx.recv().await {
         let db_sender = db_sender.clone();
         tokio::spawn(async move {
@@ -157,17 +156,11 @@ pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorag
         rust_woocommerce::ApiClient::init(safira_host, safira_ck, safira_cs)
             .expect("safira_woo_client init error"),
     );
-    let lc_ck = secrets.get("LC_CK").expect("LC_CK not set");
-    let lc_cs = secrets.get("LC_CS").expect("LC_CS not set");
-    let lc_host = secrets.get("LC_HOST").expect("LC_HOST not set");
-    let lc_woo_client = Arc::new(
-        rust_woocommerce::ApiClient::init(lc_host, lc_ck, lc_cs).expect("lc_woo_client init error"),
-    );
     let mail_client = MailClient::new(mail_user, mail_pass, mail_host)?;
     let spider = Spider::new(ort_user, ort_pass)?;
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(mail_generator(tx.clone(), mail_client));
     tokio::spawn(web_generator(tx, spider));
-    router(rx, storage, ms_client, safira_woo_client, lc_woo_client).await?;
+    router(rx, storage, ms_client, safira_woo_client).await?;
     Ok(())
 }

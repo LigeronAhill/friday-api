@@ -25,6 +25,7 @@ async fn ms_webhook(
                 .map_err(|e| tracing::error!("{e:?}"))
                 .ok()
         })
+        .filter(|e| !(e.fields.len() == 1 && e.fields.first().is_some_and(|f| f == "Наличие")))
         .collect::<Vec<_>>();
     if !events.is_empty() {
         match storage.save(events).await {

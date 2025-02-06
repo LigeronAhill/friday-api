@@ -23,7 +23,7 @@ async fn update_stock(client: Arc<woo::ApiClient>, stock: Vec<Stock>) {
     let mut products_to_update = Vec::new();
     for product in woo_products {
         let sku = product.sku.clone();
-        let quantity = get_quantity(&sku, &stock) as i32;
+        let quantity = crate::utils::get_quantity(&sku, &stock) as i32;
         let upd = woo::Product::builder()
             .id(product.id)
             .stock_quantity(quantity)
@@ -46,14 +46,4 @@ async fn update_stock(client: Arc<woo::ApiClient>, stock: Vec<Stock>) {
             len = result.len()
         );
     }
-}
-fn get_quantity(sku: &str, stock: &[Stock]) -> f64 {
-    let mut temp = stock.to_vec();
-    for word in sku.split_whitespace() {
-        temp = temp
-            .into_iter()
-            .filter(|s| s.name.to_uppercase().contains(&word.to_uppercase()))
-            .collect::<Vec<_>>();
-    }
-    temp.iter().map(|s| s.stock).sum::<f64>()
 }

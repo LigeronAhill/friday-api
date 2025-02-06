@@ -8,6 +8,7 @@ use rust_moysklad as ms;
 use rust_woocommerce as woo;
 use serde::Serialize;
 
+use crate::models::Stock;
 use crate::AppError;
 
 pub async fn pause(hours: u64) {
@@ -464,11 +465,21 @@ enum PriceTag {
     Regular,
     Sale,
 }
-impl std::fmt::Display for PriceTag {
+impl Display for PriceTag {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Regular => write!(f, "{REGULAR_PRICE}"),
             Self::Sale => write!(f, "{SALE_PRICE}"),
         }
     }
+}
+pub fn get_quantity(sku: &str, stock: &[Stock]) -> f64 {
+    let mut temp = stock.to_vec();
+    for word in sku.split_whitespace() {
+        temp = temp
+            .into_iter()
+            .filter(|s| s.name.to_uppercase().contains(&word.to_uppercase()))
+            .collect::<Vec<_>>();
+    }
+    temp.iter().map(|s| s.stock).sum::<f64>()
 }

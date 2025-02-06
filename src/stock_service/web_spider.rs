@@ -20,7 +20,7 @@ impl Spider {
         let v = reqwest::header::HeaderValue::from_str(
             "https://www.yandex.ru/clck/jsredir?from=yandex.ru;suggest;browser&text=",
         )
-            .map_err(|e| AppError::ReqwestError(e.to_string()))?;
+        .map_err(|e| AppError::ReqwestError(e.to_string()))?;
         def_head.insert(reqwest::header::REFERER, v);
         let client = reqwest::Client::builder()
             .gzip(true)
@@ -117,7 +117,7 @@ impl Spider {
         let filename_re = regex::Regex::new(
             r#""name":"Остатки\s+СФ\s+на\s+(?<date>[\d.]+)\s+Клиентские\s+Ковровые\s*.+xlsx","weblink":"(?<url>[A-zА-я/\s\d.]+)","#,
         ).unwrap();
-        let today = chrono::Utc::now();
+        let today = Utc::now();
         let result = (Vec::new(), today);
         if let Some(wl_capture) = weblink_re.captures(&text) {
             let weblink = wl_capture.name("url").unwrap().as_str();
@@ -142,9 +142,7 @@ impl Spider {
                     .get(2)
                     .and_then(|w| w.parse::<i32>().ok())
                     .unwrap_or(today.year());
-                let date = chrono::Utc
-                    .with_ymd_and_hms(year, month, day, 0, 0, 0)
-                    .unwrap();
+                let date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap();
                 let uri = format!("{weblink}/{filename}");
                 let file = self.client.get(&uri).send().await?.bytes().await?.to_vec();
                 Ok((file, date))
@@ -200,7 +198,7 @@ fn get_links(body: String) -> Vec<String> {
         if l.contains(".xls")
             && l.contains("upload")
             && (annotation.to_lowercase().contains("ковр")
-            || annotation.to_lowercase().contains("напол"))
+                || annotation.to_lowercase().contains("напол"))
         {
             // info!("Got link for {annotation}: {l}");
             result.push(l)

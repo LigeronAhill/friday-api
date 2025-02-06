@@ -86,14 +86,7 @@ fn get_stock_attribute(
                 attributes
                     .iter()
                     .find(|a| a.name == STOCK_ATTRIBUTE_NAME)
-                    .is_some_and(|a| {
-                        let val = match a.value.clone() {
-                            rust_moysklad::AttributeValue::Custom(v) => v.name,
-                            rust_moysklad::AttributeValue::String(v) => v,
-                            _ => String::new(),
-                        };
-                        val == needed_value
-                    })
+                    .is_some_and(|a| match_value(a, needed_value))
             })
         })
         .and_then(|p| {
@@ -110,26 +103,21 @@ fn is_in_stock_in_ms(ms_product: &rust_moysklad::Product) -> bool {
         .unwrap_or_default()
         .into_iter()
         .find(|a| a.name == STOCK_ATTRIBUTE_NAME)
-        .map(|a| {
-            let val = match a.value.clone() {
-                rust_moysklad::AttributeValue::Custom(v) => v.name,
-                rust_moysklad::AttributeValue::String(v) => v,
-                _ => String::new(),
-            };
-            val == IN_STOCK
-        })
+        .map(|a| match_value(&a, IN_STOCK))
         .unwrap_or(false)
 }
 fn is_in_stock(ms_product: &rust_moysklad::Product, stock: &[Stock]) -> f64 {
     let Some(sku) = ms_product.article.clone() else {
         return 0.0;
     };
-    let mut temp = stock.to_vec();
-    for word in sku.split_whitespace() {
-        temp = temp
-            .into_iter()
-            .filter(|s| s.name.to_uppercase().contains(&word.to_uppercase()))
-            .collect::<Vec<_>>();
-    }
-    temp.iter().map(|s| s.stock).sum::<f64>()
+    crate::utils::get_quantity(&sku, stock)
+}
+
+fn match_value(a: &rust_moysklad::Attribute, value: &str) -> bool {
+    let val = match a.value.clone() {
+        rust_moysklad::AttributeValue::Custom(v) => v.name,
+        rust_moysklad::AttributeValue::String(v) => v,
+        _ => String::new(),
+    };
+    val == value
 }

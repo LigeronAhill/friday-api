@@ -10,7 +10,6 @@ use std::sync::Arc;
 use crate::storage::StockStorage;
 use crate::{models::Stock, utils::pause};
 use mail_client::MailClient;
-use rust_moysklad::MoySkladApiClient;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
@@ -34,7 +33,7 @@ async fn mail_generator(tx: UnboundedSender<Vec<Stock>>, mut mc: MailClient) {
                         info!("Получено {quantity} строк остатков из почты, пауза на 1 час");
                     }
                 } else {
-                    info!("Нет новых остатков в почте, паауза на 1 час");
+                    info!("Нет новых остатков в почте, пауза на 1 час");
                 }
             }
             Err(e) => {
@@ -76,7 +75,7 @@ async fn web_generator(tx: UnboundedSender<Vec<Stock>>, spider: Spider) {
 async fn router(
     mut rx: UnboundedReceiver<Vec<Stock>>,
     storage: Arc<StockStorage>,
-    ms_client: Arc<MoySkladApiClient>,
+    ms_client: Arc<rust_moysklad::MoySkladApiClient>,
     safira_woo_client: Arc<rust_woocommerce::ApiClient>,
 ) {
     let (db_sender, db_receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -96,7 +95,7 @@ async fn router(
         let db_sender = db_sender.clone();
         tokio::spawn(async move {
             if db_sender.send(stock).is_err() {
-                tracing::error!("Ошибка отправки остатков в канал для сохранения в БД");
+                error!("Ошибка отправки остатков в канал для сохранения в БД");
             }
         });
         let limit = 500;
@@ -115,13 +114,13 @@ async fn router(
         let stock_for_ms = current_stock.clone();
         tokio::spawn(async move {
             if ms_sender.send(stock_for_ms).is_err() {
-                tracing::error!("Ошибка отправки остатков в канал для сохранения в Мой Склад");
+                error!("Ошибка отправки остатков в канал для сохранения в Мой Склад");
             }
         });
         let woo_sender = woo_sender.clone();
         tokio::spawn(async move {
             if woo_sender.send(current_stock).is_err() {
-                tracing::error!("Ошибка отправки остатков в канал для сохранения в WooCommerce");
+                error!("Ошибка отправки остатков в канал для сохранения в WooCommerce");
             }
         });
     }
@@ -133,10 +132,10 @@ async fn router(
 pub async fn run(secrets: shuttle_runtime::SecretStore, storage: Arc<StockStorage>) {
     let ort_user = secrets
         .get("ORTGRAPH_USERNAME")
-        .expect("не нашла ORTHGRAPH_USER в Secrets.toml");
+        .expect("не нашла ORTGRAPH_USER в Secrets.toml");
     let ort_pass = secrets
         .get("ORTGRAPH_PASSWORD")
-        .expect("не нашла ORTHGRAPH_PASSWORD в Secrets.toml");
+        .expect("не нашла ORTGRAPH_PASSWORD в Secrets.toml");
     let mail_host = secrets
         .get("MAIL_HOST")
         .expect("не нашла MAIL_HOST в Secrets.toml");

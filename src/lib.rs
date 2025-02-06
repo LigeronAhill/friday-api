@@ -49,9 +49,6 @@ impl Service {
         tokio::spawn(async move {
             synchronizer::run(api_clients).await;
         });
-        // TODO: telegram bot
-        // TODO: price service (input from telegram and API, currencies from MS)
-        // TODO: update prices in MS
         let router = routes::init(state, events_storage);
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, router).await?;

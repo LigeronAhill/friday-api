@@ -1,10 +1,8 @@
 use crate::models::AppState;
-use crate::storage::EventsStorage;
 use axum::routing::get;
 use axum::Router;
 use bytes::Bytes;
 use http::{HeaderMap, Request, Response};
-use std::sync::Arc;
 use std::time::Duration;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::Any;
@@ -16,7 +14,7 @@ mod api_routes;
 mod health;
 mod webhooks;
 
-pub fn init(state: AppState, events_storage: Arc<EventsStorage>) -> Router {
+pub fn init(state: AppState) -> Router {
     let cors = tower_http::cors::CorsLayer::new()
         .allow_methods(Any)
         .allow_origin(Any);
@@ -45,8 +43,8 @@ pub fn init(state: AppState, events_storage: Arc<EventsStorage>) -> Router {
         );
     Router::new()
         .route("/health", get(health::health_check))
-        .nest("/api/v1", api_routes::init(state))
-        .nest("/webhooks", webhooks::init(events_storage))
+        .nest("/api/v1", api_routes::init(state.clone()))
+        .nest("/webhooks", webhooks::init(state))
         .layer(trace)
         .layer(TimeoutLayer::new(Duration::from_secs(10)))
         .layer(cors)

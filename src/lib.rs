@@ -3,8 +3,8 @@ mod error;
 use std::sync::Arc;
 
 pub use error::{AppError, Result};
+use event_processor::Eventer;
 use storage::{CurrencyStorage, StockStorage};
-use tracing::info;
 mod event_processor;
 mod models;
 mod price_service;
@@ -24,32 +24,54 @@ impl Service {
     }
     pub async fn run(&self, addr: std::net::SocketAddr) -> anyhow::Result<()> {
         sqlx::migrate!().run(&self.pool).await?;
-        info!("Инициализирую базу данных валют");
+        let ms_token = self.secrets.get("MS_TOKEN").expect("MS_TOKEN not set");
+        let ms_client = Arc::new(
+            rust_moysklad::MoySkladApiClient::new(ms_token)
+                .expect("Не получилось создать клиент Мой Склад"),
+        );
+        let safira_ck = self.secrets.get("SAFIRA_CK").expect("SAFIRA_CK not set");
+        let safira_cs = self.secrets.get("SAFIRA_CS").expect("SAFIRA_CS not set");
+        let safira_host = self
+            .secrets
+            .get("SAFIRA_HOST")
+            .expect("SAFIRA_HOST not set");
+        let safira_client = Arc::new(
+            rust_woocommerce::ApiClient::init(safira_host, safira_ck, safira_cs)
+                .expect("safira_woo_client init error"),
+        );
+        let lc_ck = self.secrets.get("LC_CK").expect("LC_CK not set");
+        let lc_cs = self.secrets.get("LC_CS").expect("LC_CS not set");
+        let lc_host = self.secrets.get("LC_HOST").expect("LC_HOST not set");
+        let lc_client = Arc::new(
+            rust_woocommerce::ApiClient::init(lc_host, lc_ck, lc_cs)
+                .expect("lc_woo_client init error"),
+        );
         let currency_storage = Arc::new(CurrencyStorage::new(self.pool.clone()).await?);
-        info!("База данных валют готова к использованию");
-        info!("Запускаю службу обновления курсов валют");
-        let currency_storage_instance = currency_storage.clone();
-        tokio::spawn(async move { currency_service::run(currency_storage_instance).await });
-        info!("Инициализирую базу данных остатков");
         let stock_storage = Arc::new(StockStorage::new(self.pool.clone()));
-        info!("Запускаю службу обновления остатков");
-        let stock_storage_instance = Arc::new(StockStorage::new(self.pool.clone()));
-        let secrets_instance = self.secrets.clone();
-        tokio::spawn(async move {
-            stock_service::run(secrets_instance, stock_storage_instance).await;
-        });
-        let state = models::AppState::new(currency_storage.clone(), stock_storage.clone());
         let events_storage = Arc::new(storage::EventsStorage::new(self.pool.clone()));
-        let api_clients = models::ApiClients::new(self.secrets.clone())?;
-        let api_clients_instance = api_clients.clone();
-        let events_storage_instance = events_storage.clone();
-        tokio::spawn(async move {
-            event_processor::run(api_clients_instance, events_storage_instance).await;
-        });
-        tokio::spawn(async move {
-            synchronizer::run(api_clients).await;
-        });
-        let router = routes::init(state, events_storage);
+        tokio::spawn(currency_service::run(currency_storage.clone()));
+        let syncer = synchronizer::Synchronizer::new(
+            ms_client.clone(),
+            safira_client.clone(),
+            lc_client.clone(),
+            stock_storage.clone(),
+        );
+        tokio::spawn(syncer.run());
+        let stocker = stock_service::Stocker::new(self.secrets.clone(), stock_storage.clone());
+        tokio::spawn(stocker.run());
+        let eventer = Eventer::new(
+            ms_client.clone(),
+            safira_client.clone(),
+            events_storage.clone(),
+            stock_storage.clone(),
+        );
+        tokio::spawn(eventer.run());
+        let state = models::AppState::new(
+            currency_storage.clone(),
+            stock_storage.clone(),
+            events_storage.clone(),
+        );
+        let router = routes::init(state);
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, router).await?;
         Ok(())

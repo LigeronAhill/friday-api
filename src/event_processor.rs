@@ -1,71 +1,174 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::{
+    mpsc::{UnboundedReceiver, UnboundedSender},
+    oneshot::{self, Sender},
+};
 
 use crate::{
-    models::{ApiClients, MsEvent},
-    storage::EventsStorage,
+    models::{MsEvent, Stock},
+    storage::{EventsStorage, StockStorage},
     utils::{convert_to_create, convert_to_update, pause, MsData, WooData},
     AppError,
 };
 
-pub async fn run(api_clients: ApiClients, events_storage: Arc<EventsStorage>) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    // generator
-    let esg = events_storage.clone();
-    tokio::spawn(async move {
-        generator(tx, esg).await;
-    });
-    // cleaner
-    let esc = events_storage.clone();
-    tokio::spawn(async move {
-        clean(esc).await;
-    });
-    // processors
-    processor(rx, api_clients, events_storage).await;
-}
-async fn processor(
-    mut rx: UnboundedReceiver<Vec<MsEvent>>,
-    api_clients: ApiClients,
+pub struct Eventer {
+    ms_client: Arc<rust_moysklad::MoySkladApiClient>,
+    safira_client: Arc<rust_woocommerce::ApiClient>,
     events_storage: Arc<EventsStorage>,
-) {
-    while let Some(events) = rx.recv().await {
-        let mut has_errors = false;
-        match MsData::get(api_clients.ms_client.clone()).await {
-            Ok(ms_data) => match WooData::get(api_clients.safira_woo_client.clone()).await {
-                Ok(safira_woo_data) => {
-                    if let Err(e) = process_events(
-                        &events,
-                        &ms_data,
-                        &safira_woo_data,
-                        api_clients.safira_woo_client.clone(),
-                    )
-                    .await
-                    {
-                        has_errors = true;
-                        tracing::warn!("{e:?}");
-                    }
+    stock_storage: Arc<StockStorage>,
+}
+impl Eventer {
+    pub fn new(
+        ms_client: Arc<rust_moysklad::MoySkladApiClient>,
+        safira_client: Arc<rust_woocommerce::ApiClient>,
+        events_storage: Arc<EventsStorage>,
+        stock_storage: Arc<StockStorage>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            ms_client,
+            safira_client,
+            events_storage,
+            stock_storage,
+        })
+    }
+    pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(generator(tx, self.clone().events_storage.clone()));
+        tokio::spawn(clean(self.clone().events_storage.clone()));
+        self.processor(rx).await?;
+        Ok(())
+    }
+    async fn processor(
+        self: Arc<Self>,
+        mut rx: UnboundedReceiver<Vec<MsEvent>>,
+    ) -> anyhow::Result<()> {
+        while let Some(events) = rx.recv().await {
+            let ms_data = self.clone().get_ms_data().await?;
+            let mut stock = Vec::new();
+            let limit = 500;
+            let mut offset = 0;
+            loop {
+                let temp = self
+                    .clone()
+                    .stock_storage
+                    .clone()
+                    .get(limit, offset)
+                    .await?;
+                if temp.is_empty() {
+                    break;
+                } else {
+                    stock.extend(temp);
+                    offset += limit;
                 }
-                Err(e) => {
-                    has_errors = true;
-                    tracing::warn!("{e:?}");
-                }
-            },
-            Err(e) => {
-                has_errors = true;
-                tracing::warn!("{e:?}");
+            }
+            let woo_data = self.clone().get_woo_data().await?;
+            process_events(
+                &events,
+                &ms_data,
+                &woo_data,
+                self.clone().safira_client.clone(),
+                &stock,
+                self.clone().events_storage.clone(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+    async fn get_ms_data(self: Arc<Self>) -> anyhow::Result<MsData> {
+        let (currencies_sender, currencies_receiver) = oneshot::channel();
+        let (countries_sender, countries_receiver) = oneshot::channel();
+        let (uoms_sender, uoms_receiver) = oneshot::channel();
+        let (products_sender, products_receiver) = oneshot::channel();
+        tokio::spawn(self.clone().ms_currencies(currencies_sender));
+        tokio::spawn(self.clone().ms_countries(countries_sender));
+        tokio::spawn(self.clone().ms_uoms(uoms_sender));
+        tokio::spawn(self.clone().ms_products(products_sender));
+        let currencies = currencies_receiver.await?;
+        let countries = countries_receiver.await?;
+        let uoms = uoms_receiver.await?;
+        let products_vec = products_receiver.await?;
+        let mut products = HashMap::new();
+        for product in products_vec {
+            if let Some(sku) = product.article.clone() {
+                products.insert(sku.to_uppercase(), product.clone());
             }
         }
-        if !has_errors {
-            for event in events {
-                match events_storage.process(event.id).await {
-                    Ok(_) => tracing::info!("Событие {id} обработано", id = event.id),
-                    Err(e) => {
-                        tracing::warn!("Ошибка при обработке события {id}: {e:?}", id = event.id)
-                    }
-                }
-            }
+        let result = MsData {
+            currencies,
+            countries,
+            uoms,
+            products,
+        };
+        Ok(result)
+    }
+    async fn ms_currencies(
+        self: Arc<Self>,
+        tx: Sender<Vec<rust_moysklad::Currency>>,
+    ) -> anyhow::Result<()> {
+        let result = self.ms_client.get_all::<rust_moysklad::Currency>().await?;
+        tx.send(result).unwrap();
+        Ok(())
+    }
+    async fn ms_countries(
+        self: Arc<Self>,
+        tx: Sender<Vec<rust_moysklad::Country>>,
+    ) -> anyhow::Result<()> {
+        let result = self.ms_client.get_all::<rust_moysklad::Country>().await?;
+        tx.send(result).unwrap();
+        Ok(())
+    }
+    async fn ms_uoms(self: Arc<Self>, tx: Sender<Vec<rust_moysklad::Uom>>) -> anyhow::Result<()> {
+        let result = self.ms_client.get_all::<rust_moysklad::Uom>().await?;
+        tx.send(result).unwrap();
+        Ok(())
+    }
+    async fn ms_products(
+        self: Arc<Self>,
+        tx: Sender<Vec<rust_moysklad::Product>>,
+    ) -> anyhow::Result<()> {
+        let result = self.ms_client.get_all::<rust_moysklad::Product>().await?;
+        tx.send(result).unwrap();
+        Ok(())
+    }
+    async fn get_woo_data(self: Arc<Self>) -> anyhow::Result<WooData> {
+        let (products, attributes, categories) = tokio::join!(
+            self.clone().woo_products(),
+            self.clone().woo_attributes(),
+            self.clone().woo_categories(),
+        );
+        let products_vec = products?;
+        let attributes_vec = attributes?;
+        let categories_vec = categories?;
+        let mut products = HashMap::new();
+        for product in products_vec {
+            products.insert(product.sku.to_uppercase(), product);
         }
+        let mut attributes = HashMap::new();
+        for attribute in attributes_vec {
+            attributes.insert(attribute.name.clone(), attribute);
+        }
+        let mut categories = HashMap::new();
+        for category in categories_vec {
+            categories.insert(category.name.clone(), category);
+        }
+        Ok(WooData {
+            products,
+            attributes,
+            categories,
+        })
+    }
+    async fn woo_products(self: Arc<Self>) -> anyhow::Result<Vec<rust_woocommerce::Product>> {
+        let result = self.clone().safira_client.clone().list_all().await?;
+        Ok(result)
+    }
+    async fn woo_attributes(self: Arc<Self>) -> anyhow::Result<Vec<rust_woocommerce::Attribute>> {
+        let result = self.clone().safira_client.clone().list_all().await?;
+        Ok(result)
+    }
+    async fn woo_categories(self: Arc<Self>) -> anyhow::Result<Vec<rust_woocommerce::Category>> {
+        let result = self.clone().safira_client.clone().list_all().await?;
+        Ok(result)
     }
 }
 
@@ -74,9 +177,12 @@ async fn process_events(
     ms_data: &MsData,
     woo_data: &WooData,
     woo_client: Arc<rust_woocommerce::ApiClient>,
+    stock: &[Stock],
+    evens_storage: Arc<EventsStorage>,
 ) -> crate::Result<()> {
     for event in events {
-        process_event(event, ms_data, woo_data, woo_client.clone()).await?;
+        process_event(event, ms_data, woo_data, woo_client.clone(), stock).await?;
+        evens_storage.process(event.id).await?;
     }
     Ok(())
 }
@@ -86,6 +192,7 @@ async fn process_event(
     ms_data: &MsData,
     woo_data: &WooData,
     woo_client: Arc<rust_woocommerce::ApiClient>,
+    stock: &[Stock],
 ) -> crate::Result<()> {
     let Some(ms_product) = ms_data
         .products
@@ -98,7 +205,7 @@ async fn process_event(
     match event.action.as_str() {
         "CREATE" => {
             if let Some(woo_converted_product_to_create) =
-                convert_to_create(ms_product, ms_data, woo_data)
+                convert_to_create(ms_product, ms_data, woo_data, stock)
             {
                 woo_client
                     .create::<rust_woocommerce::Product>(woo_converted_product_to_create)
@@ -116,7 +223,7 @@ async fn process_event(
             ) {
                 Some(woo_product) => {
                     if let Some(woo_converted_product_to_update) =
-                        convert_to_update(ms_product, woo_product, ms_data, woo_data)
+                        convert_to_update(ms_product, woo_product, ms_data, woo_data, stock)
                     {
                         woo_client
                             .update::<rust_woocommerce::Product>(
@@ -129,7 +236,7 @@ async fn process_event(
                 }
                 None => {
                     if let Some(woo_converted_product_to_create) =
-                        convert_to_create(ms_product, ms_data, woo_data)
+                        convert_to_create(ms_product, ms_data, woo_data, stock)
                     {
                         woo_client
                             .create::<rust_woocommerce::Product>(woo_converted_product_to_create)
@@ -168,8 +275,7 @@ async fn generator(tx: UnboundedSender<Vec<MsEvent>>, events_storage: Arc<Events
                 tracing::error!("Ошибка получения событий из базы данных: {e:?}");
             }
         }
-        // pause(1).await;
-        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(5 * 60)).await;
     }
 }
 

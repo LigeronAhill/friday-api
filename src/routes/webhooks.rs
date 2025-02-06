@@ -1,20 +1,15 @@
-use std::sync::Arc;
-
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 
-use crate::{
-    models::{MsEvent, WebhookRequest},
-    storage::EventsStorage,
-};
+use crate::models::{AppState, MsEvent, WebhookRequest};
 
-pub fn init(storage: Arc<EventsStorage>) -> Router {
+pub fn init(state: AppState) -> Router {
     Router::new()
         .route("/ms", post(ms_webhook))
-        .with_state(storage)
+        .with_state(state)
 }
 
 async fn ms_webhook(
-    State(storage): State<Arc<EventsStorage>>,
+    State(state): State<AppState>,
     Json(payload): Json<WebhookRequest>,
 ) -> StatusCode {
     let events = payload
@@ -25,10 +20,9 @@ async fn ms_webhook(
                 .map_err(|e| tracing::error!("{e:?}"))
                 .ok()
         })
-        .filter(|e| !(e.fields.len() == 1 && e.fields.first().is_some_and(|f| f == "Наличие")))
         .collect::<Vec<_>>();
     if !events.is_empty() {
-        match storage.save(events).await {
+        match state.events_storage.save(events).await {
             Ok(_) => tracing::info!("События из Мой Склад добавлены в очередь"),
             Err(e) => tracing::error!("События из Мой Склад не добавлены в очередь: {e:?}"),
         }

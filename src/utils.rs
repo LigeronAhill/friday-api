@@ -19,8 +19,10 @@ pub fn convert_to_create(
     ms_product: &ms::Product,
     ms_data: &MsData,
     woo_data: &WooData,
+    stock: &[Stock],
 ) -> Option<impl Serialize + Clone + Send + Sync + 'static> {
     let sku = ms_product.article.as_ref()?.to_uppercase();
+    let quantity = get_quantity(&sku, stock) as i32;
     let mut uom = ms_data
         .uoms
         .iter()
@@ -79,7 +81,7 @@ pub fn convert_to_create(
         .manage_stock()
         .weight(format!("{weight:.2}"))
         .stock_status(woo::StockStatus::Onbackorder)
-        .stock_quantity(0);
+        .stock_quantity(quantity);
     let mut length = 1.0;
     let mut width = 1.0;
     let mut height = 1.0;
@@ -163,6 +165,7 @@ pub fn convert_to_update(
     woo_product: &woo::Product,
     ms_data: &MsData,
     woo_data: &WooData,
+    stock: &[Stock],
 ) -> Option<impl Serialize + Clone + Send + Sync + 'static> {
     let ms_regular_price = get_ms_product_price(ms_product, PriceTag::Regular, ms_data)?;
     let ms_sale_price = get_ms_product_price(ms_product, PriceTag::Sale, ms_data)?;
@@ -211,6 +214,8 @@ pub fn convert_to_update(
     } else {
         (woo::ProductStatus::Publish, woo::CatalogVisibility::Visible)
     };
+    let sku = woo_product.sku.clone();
+    let quantity = get_quantity(&sku, stock) as i32;
     result
         .id(woo_product.id)
         .sku(&woo_product.sku)
@@ -222,6 +227,7 @@ pub fn convert_to_update(
         .regular_price(format!("{ms_regular_price:.2}"))
         .backorders(woo::BackordersStatus::Yes)
         .manage_stock()
+        .stock_quantity(quantity)
         .weight(weight);
     for cat in woo_product.categories.iter() {
         result.categories(cat.id);

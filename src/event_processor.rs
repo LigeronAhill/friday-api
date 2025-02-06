@@ -87,9 +87,7 @@ async fn process_event(
         .find(|(_, p)| p.id == event.product_id)
         .map(|(_, p)| p)
     else {
-        return Err(AppError::Custom(
-            "Нет такого продукта в Мой Склад".to_string(),
-        ));
+        return Ok(());
     };
     match event.action.as_str() {
         "CREATE" => {

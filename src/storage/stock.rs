@@ -10,7 +10,7 @@ impl StockStorage {
     pub fn new(pool: sqlx::PgPool) -> StockStorage {
         StockStorage { pool }
     }
-    pub async fn update(&self, input: &Vec<Stock>) -> Result<(u64, u64)> {
+    pub async fn update(&self, input: &[Stock]) -> Result<(u64, u64)> {
         let mut suppliers = HashSet::new();
         for supplier in input.iter().map(|s| s.supplier.clone()) {
             suppliers.insert(supplier);
@@ -22,12 +22,13 @@ impl StockStorage {
             let qr = sqlx::query(query).bind(supplier).execute(&mut *tx).await?;
             deleted += qr.rows_affected();
         }
-        let query_string = "INSERT INTO stock(supplier, name, stock) ";
+        let query_string = "INSERT INTO stock(supplier, name, stock, updated) ";
         let mut query_builder = sqlx::QueryBuilder::new(query_string);
         query_builder.push_values(input, |mut b, stock| {
             b.push_bind(&stock.supplier)
                 .push_bind(&stock.name)
-                .push_bind(stock.stock);
+                .push_bind(stock.stock)
+                .push_bind(stock.updated);
         });
         let query = query_builder.build();
         let results = query.execute(&mut *tx).await?;

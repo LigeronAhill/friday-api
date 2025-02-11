@@ -22,8 +22,11 @@ impl Service {
     pub fn new(pool: sqlx::PgPool, secrets: shuttle_runtime::SecretStore) -> Self {
         Self { pool, secrets }
     }
-    pub async fn run(&self, addr: std::net::SocketAddr) -> anyhow::Result<()> {
-        sqlx::migrate!().run(&self.pool).await?;
+    pub async fn run(&self, addr: std::net::SocketAddr) {
+        sqlx::migrate!()
+            .run(&self.pool)
+            .await
+            .expect("Failed to migrate");
         let ms_token = self.secrets.get("MS_TOKEN").expect("MS_TOKEN not set");
         let ms_client = Arc::new(
             rust_moysklad::MoySkladApiClient::new(ms_token)
@@ -46,7 +49,11 @@ impl Service {
             rust_woocommerce::ApiClient::init(lc_host, lc_ck, lc_cs)
                 .expect("lc_woo_client init error"),
         );
-        let currency_storage = Arc::new(CurrencyStorage::new(self.pool.clone()).await?);
+        let currency_storage = Arc::new(
+            CurrencyStorage::new(self.pool.clone())
+                .await
+                .expect("Failed to init currency storage"),
+        );
         let stock_storage = Arc::new(StockStorage::new(self.pool.clone()));
         let events_storage = Arc::new(storage::EventsStorage::new(self.pool.clone()));
         tokio::spawn(currency_service::run(currency_storage.clone()));
@@ -72,9 +79,12 @@ impl Service {
             events_storage.clone(),
         );
         let router = routes::init(state);
-        let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, router).await?;
-        Ok(())
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .expect("Failed to bind address to listener");
+        if let Err(e) = axum::serve(listener, router).await {
+            tracing::error!("{e:?}");
+        }
     }
 }
 
@@ -84,7 +94,7 @@ impl shuttle_runtime::Service for Service {
         mut self,
         addr: std::net::SocketAddr,
     ) -> std::result::Result<(), shuttle_runtime::Error> {
-        self.run(addr).await?;
+        self.run(addr).await;
         Ok(())
     }
 }

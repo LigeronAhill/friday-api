@@ -214,6 +214,9 @@ async fn process_event(
             }
         }
         "UPDATE" => {
+            if event.fields.len() == 1 && event.fields[0] == "Наличие" {
+                return Ok(());
+            }
             match woo_data.products.get(
                 &ms_product
                     .article
@@ -267,8 +270,10 @@ async fn generator(tx: UnboundedSender<Vec<MsEvent>>, events_storage: Arc<Events
     loop {
         match events_storage.get().await {
             Ok(events) => {
-                if !events.is_empty() && tx.send(events).is_err() {
-                    tracing::warn!("Ошибка отправки событий в очередь");
+                if !events.is_empty() {
+                    if let Err(e) = tx.send(events) {
+                        tracing::warn!("Ошибка отправки событий в очередь -> {e:?}");
+                    }
                 }
             }
             Err(e) => {
@@ -285,6 +290,6 @@ async fn clean(events_storage: Arc<EventsStorage>) {
             Ok(_) => tracing::info!("Обработанные события удалены из базы данных"),
             Err(e) => tracing::error!("Ошибка удаления обработанных событий из базы данных: {e:?}"),
         }
-        pause(24).await;
+        pause(1).await;
     }
 }

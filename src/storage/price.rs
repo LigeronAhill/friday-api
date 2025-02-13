@@ -35,7 +35,7 @@ impl PriceStorage {
     }
     pub async fn update(&self, input: Vec<PriceItem>) -> Result<u64, sqlx::Error> {
         let query_string = r#"
-        INSERT INTO prices (supplier, manufacturer, collection, name, widths, pile_composition, pile_height, total_height, pile_weigth, total_weight, durability_class, fire_certificate, purchase_roll_price, purchase_coupon_price, recommended_roll_price, recommended_coupon_price) 
+        INSERT INTO prices (supplier, manufacturer, collection, name, widths, pile_composition, pile_height, total_height, pile_weight, total_weight, durability_class, fire_certificate, purchase_roll_price, purchase_coupon_price, recommended_roll_price, recommended_coupon_price) 
         "#;
         let mut query_builder = sqlx::QueryBuilder::new(query_string);
         query_builder.push_values(input, |mut b, input| {
@@ -56,23 +56,19 @@ impl PriceStorage {
                 .push_bind(input.recommended_roll_price)
                 .push_bind(input.recommended_coupon_price);
         });
-        let conflict = r#"
-        ON CONFLICT(supplier, manufacturer, collection)
-        DO UPDATE SET
-        widths = EXCLUDED_widths,
-        pile_composition = EXCLUDED_pile_composition,
-        pile_height = EXCLUDED_pile_height,
-        total_height = EXCLUDED_total_height,
-        pile_weight = EXCLUDED_pile_weight,
-        total_weight = EXCLUDED_total_weight,
-        durability_class = EXCLUDED_durability_class,
-        fire_certificate = EXCLUDED_fire_certificate,
-        purchase_roll_price = EXCLUDED_purchase_roll_price,
-        purchase_coupon_price = EXCLUDED_purchase_coupon_price,
-        recommended_roll_price = EXCLUDED_recommended_roll_price,
-        recommended_coupon_price = EXCLUDED_recommended_coupon_price
-        updated = now();
-        "#;
+        let conflict = "ON CONFLICT(supplier, manufacturer, collection) DO UPDATE SET widths = EXCLUDED.widths,
+        pile_composition = EXCLUDED.pile_composition,
+        pile_height = EXCLUDED.pile_height,
+        total_height = EXCLUDED.total_height,
+        pile_weight = EXCLUDED.pile_weight,
+        total_weight = EXCLUDED.total_weight,
+        durability_class = EXCLUDED.durability_class,
+        fire_certificate = EXCLUDED.fire_certificate,
+        purchase_roll_price = EXCLUDED.purchase_roll_price,
+        purchase_coupon_price = EXCLUDED.purchase_coupon_price,
+        recommended_roll_price = EXCLUDED.recommended_roll_price,
+        recommended_coupon_price = EXCLUDED.recommended_coupon_price,
+        updated = now();";
         query_builder.push(conflict);
         let query = query_builder.build();
         let results = query.execute(&self.pool).await?;

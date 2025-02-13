@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 pub use error::{AppError, Result};
 use event_processor::Eventer;
-use storage::{CurrencyStorage, StockStorage};
+use storage::{CurrencyStorage, PriceStorage, StockStorage};
 mod event_processor;
 mod models;
 mod price_service;
@@ -54,6 +54,7 @@ impl Service {
                 .await
                 .expect("Failed to init currency storage"),
         );
+        let price_storage = Arc::new(PriceStorage::new(self.pool.clone()));
         let stock_storage = Arc::new(StockStorage::new(self.pool.clone()));
         let events_storage = Arc::new(storage::EventsStorage::new(self.pool.clone()));
         tokio::spawn(currency_service::run(currency_storage.clone()));
@@ -77,6 +78,7 @@ impl Service {
             currency_storage.clone(),
             stock_storage.clone(),
             events_storage.clone(),
+            price_storage,
         );
         let router = routes::init(state);
         let listener = tokio::net::TcpListener::bind(addr)

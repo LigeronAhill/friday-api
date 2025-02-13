@@ -73,14 +73,14 @@ impl Stocker {
             tokio::spawn(async move {
                 while let Some(s) = receiver.recv().await {
                     if let Err(e) = tx.send(s) {
-                        tracing::error!("{e:?}");
+                        error!("{e:?}");
                     }
                 }
             });
         }
         while let Some(s) = rx.recv().await {
             let (deleted, inserted) = self.clone().stock_storage.clone().update(&s).await?;
-            tracing::info!("Удалено {deleted}, добавлено {inserted} строк остатков");
+            info!("Удалено {deleted}, добавлено {inserted} строк остатков");
         }
         Ok(())
     }

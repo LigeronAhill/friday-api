@@ -7,9 +7,9 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub(super) struct StockQuery {
-    limit: Option<i32>,
-    offset: Option<i32>,
-    search: Option<String>,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+    pub search: Option<String>,
 }
 pub(super) async fn stock(
     State(state): State<AppState>,

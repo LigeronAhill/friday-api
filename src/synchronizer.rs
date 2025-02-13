@@ -132,7 +132,9 @@ impl Synchronizer {
                     let result = woo_client
                         .batch_create::<woo::Product, _>(products_to_create)
                         .await;
-                    sender.send(result).unwrap();
+                    if let Err(e) = sender.send(result) {
+                        tracing::error!("Error sending {e:?}");
+                    }
                 });
             }
             if !products_to_update.is_empty() {
@@ -140,7 +142,9 @@ impl Synchronizer {
                 let woo_client = self.clone().woo_client(base_url.clone());
                 tokio::spawn(async move {
                     let result = woo_client.batch_update(products_to_update).await;
-                    sender.send(result).unwrap();
+                    if let Err(e) = sender.send(result) {
+                        tracing::error!("Error sending {e:?}");
+                    }
                 });
             }
             if !products_to_delete.is_empty() {
@@ -150,7 +154,9 @@ impl Synchronizer {
                     let result = woo_client
                         .batch_delete::<woo::Product>(products_to_delete)
                         .await;
-                    sender.send(result).unwrap();
+                    if let Err(e) = sender.send(result) {
+                        tracing::error!("Error sending {e:?}");
+                    }
                 });
             }
         }

@@ -33,7 +33,12 @@ pub(super) async fn prices(
     State(state): State<AppState>,
     Json(payload): Json<Vec<PriceItem>>,
 ) -> StatusCode {
-    match state.price_storage.update(payload).await {
+    match state
+        .price_storage
+        .update(payload)
+        .await
+        .map_err(|e| tracing::error!("{e:?}"))
+    {
         Ok(_) => StatusCode::OK,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }

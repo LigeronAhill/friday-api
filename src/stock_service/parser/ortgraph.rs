@@ -43,6 +43,9 @@ async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<
             .and_then(|d| d.to_string().trim().parse::<f64>().ok())
         {
             let name = row.first().map(|d| d.to_string()).unwrap_or_default();
+            if row.get(1).is_some_and(|d| d.to_string().is_empty()) {
+                continue;
+            }
             let item = Stock {
                 supplier: "ortgraph".to_string(),
                 name: clear_string(&name),

@@ -6,8 +6,8 @@ use crate::{
     utils::{convert_to_create, convert_to_update, pause, MsData, WooData},
     AppError,
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
+use tracing::instrument;
 
 pub struct Eventer {
     ms_client: Arc<rust_moysklad::MoySkladApiClient>,
@@ -30,15 +30,19 @@ impl Eventer {
         })
     }
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
-        let (tx, rx) = channel(10);
+        let (tx, rx) = mpsc::channel(10);
         tokio::spawn(generator(tx, self.clone().events_storage.clone()));
         tokio::spawn(clean(self.clone().events_storage.clone()));
         self.processor(rx).await?;
         Ok(())
     }
+    #[instrument(
+        name = "Event processor thread",
+        skip_all
+    )]
     async fn processor(
         self: Arc<Self>,
-        mut rx: Receiver<Vec<MsEvent>>,
+        mut rx: mpsc::Receiver<Vec<MsEvent>>,
     ) -> anyhow::Result<()> {
         while let Some(events) = rx.recv().await {
             let ms_data = self.clone().get_ms_data().await?;
@@ -72,6 +76,10 @@ impl Eventer {
         }
         Ok(())
     }
+    #[instrument(
+        name = "getting ms data",
+        skip_all
+    )]
     async fn get_ms_data(self: Arc<Self>) -> anyhow::Result<MsData> {
         let (currencies_sender, currencies_receiver) = oneshot::channel();
         let (countries_sender, countries_receiver) = oneshot::channel();
@@ -99,43 +107,63 @@ impl Eventer {
         };
         Ok(result)
     }
+    #[instrument(
+        name = "getting ms currencies",
+        skip_all
+    )]
     async fn ms_currencies(
         self: Arc<Self>,
         tx: oneshot::Sender<Vec<rust_moysklad::Currency>>,
     ) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Currency>().await?;
-        if let Err(e) = tx.send(result) {
-            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        if tx.send(result).is_err() {
+            tracing::error!("Ошибка отправки курсов валют в канал в очередь");
         }
         Ok(())
     }
+    #[instrument(
+        name = "getting ms countries",
+        skip_all
+    )]
     async fn ms_countries(
         self: Arc<Self>,
         tx: oneshot::Sender<Vec<rust_moysklad::Country>>,
     ) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Country>().await?;
-        if let Err(e) = tx.send(result) {
-            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        if tx.send(result).is_err() {
+            tracing::error!("Ошибка отправки списка стран в канал");
         }
         Ok(())
     }
+    #[instrument(
+        name = "getting ms uoms",
+        skip_all
+    )]
     async fn ms_uoms(self: Arc<Self>, tx: oneshot::Sender<Vec<rust_moysklad::Uom>>) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Uom>().await?;
-        if let Err(e) = tx.send(result) {
-            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        if tx.send(result).is_err() {
+            tracing::error!("Ошибка отправки единиц измерения в канал");
         }
         Ok(())
     }
+    #[instrument(
+        name = "getting ms products",
+        skip_all
+    )]
     async fn ms_products(
         self: Arc<Self>,
         tx: oneshot::Sender<Vec<rust_moysklad::Product>>,
     ) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Product>().await?;
-        if let Err(e) = tx.send(result) {
-            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        if tx.send(result).is_err() {
+            tracing::error!("Ошибка отправки товаров в канал");
         }
         Ok(())
     }
+    #[instrument(
+        name = "getting woo data",
+        skip_all
+    )]
     async fn get_woo_data(self: Arc<Self>) -> anyhow::Result<WooData> {
         let (products, attributes, categories) = tokio::join!(
             self.clone().woo_products(),
@@ -163,20 +191,36 @@ impl Eventer {
             categories,
         })
     }
+    #[instrument(
+        name = "getting woo products",
+        skip_all
+    )]
     async fn woo_products(self: Arc<Self>) -> anyhow::Result<Vec<rust_woocommerce::Product>> {
         let result = self.clone().safira_client.clone().list_all().await?;
         Ok(result)
     }
+    #[instrument(
+        name = "getting woo attributes",
+        skip_all
+    )]
     async fn woo_attributes(self: Arc<Self>) -> anyhow::Result<Vec<rust_woocommerce::Attribute>> {
         let result = self.clone().safira_client.clone().list_all().await?;
         Ok(result)
     }
+    #[instrument(
+        name = "getting woo categories",
+        skip_all
+    )]
     async fn woo_categories(self: Arc<Self>) -> anyhow::Result<Vec<rust_woocommerce::Category>> {
         let result = self.clone().safira_client.clone().list_all().await?;
         Ok(result)
     }
 }
 
+#[instrument(
+    name = "processing events",
+    skip_all,
+)]
 async fn process_events(
     events: &[MsEvent],
     ms_data: &MsData,
@@ -186,12 +230,17 @@ async fn process_events(
     evens_storage: Arc<EventsStorage>,
 ) -> crate::Result<()> {
     for event in events {
-        process_event(event, ms_data, woo_data, woo_client.clone(), stock).await?;
-        evens_storage.process(event.id).await?;
+        if process_event(event, ms_data, woo_data, woo_client.clone(), stock).await.is_ok() {
+            evens_storage.process(event.id).await?;
+        }
     }
     Ok(())
 }
 
+#[instrument(
+    name = "processing event",
+    skip_all,
+)]
 async fn process_event(
     event: &MsEvent,
     ms_data: &MsData,
@@ -219,9 +268,6 @@ async fn process_event(
             }
         }
         "UPDATE" => {
-            if event.fields.len() == 1 && event.fields[0] == "Наличие" {
-                return Ok(());
-            }
             match woo_data.products.get(
                 &ms_product
                     .article
@@ -271,25 +317,32 @@ async fn process_event(
     Ok(())
 }
 
-async fn generator(tx: Sender<Vec<MsEvent>>, events_storage: Arc<EventsStorage>) {
+#[instrument(
+    name = "generating events",
+    skip_all,
+)]
+async fn generator(tx: mpsc::Sender<Vec<MsEvent>>, events_storage: Arc<EventsStorage>) {
     loop {
-        let tx = tx.clone();
         match events_storage.get().await {
             Ok(events) => {
-                if !events.is_empty() {
-                    if let Err(e) = tx.send(events).await {
-                        tracing::warn!("Ошибка отправки событий в очередь -> {e:?}");
-                    }
+                if !events.is_empty() && tx.send(events).await.is_err() {
+                    tracing::error!("Ошибка отправки событий в очередь");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 }
+                tokio::time::sleep(tokio::time::Duration::from_secs(5 * 60)).await;
             }
             Err(e) => {
                 tracing::error!("Ошибка получения событий из базы данных: {e:?}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             }
         }
-        tokio::time::sleep(tokio::time::Duration::from_secs(5 * 60)).await;
     }
 }
 
+#[instrument(
+    name = "cleaning processed events",
+    skip_all,
+)]
 async fn clean(events_storage: Arc<EventsStorage>) {
     loop {
         match events_storage.remove_processed().await {

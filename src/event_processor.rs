@@ -1,16 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{
-    mpsc::{UnboundedReceiver, UnboundedSender},
-    oneshot::{self, Sender},
-};
-
 use crate::{
     models::{MsEvent, Stock},
     storage::{EventsStorage, StockStorage},
     utils::{convert_to_create, convert_to_update, pause, MsData, WooData},
     AppError,
 };
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::oneshot;
 
 pub struct Eventer {
     ms_client: Arc<rust_moysklad::MoySkladApiClient>,
@@ -33,7 +30,7 @@ impl Eventer {
         })
     }
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
         tokio::spawn(generator(tx, self.clone().events_storage.clone()));
         tokio::spawn(clean(self.clone().events_storage.clone()));
         self.processor(rx).await?;
@@ -41,7 +38,7 @@ impl Eventer {
     }
     async fn processor(
         self: Arc<Self>,
-        mut rx: UnboundedReceiver<Vec<MsEvent>>,
+        mut rx: Receiver<Vec<MsEvent>>,
     ) -> anyhow::Result<()> {
         while let Some(events) = rx.recv().await {
             let ms_data = self.clone().get_ms_data().await?;
@@ -71,7 +68,7 @@ impl Eventer {
                 &stock,
                 self.clone().events_storage.clone(),
             )
-            .await?;
+                .await?;
         }
         Ok(())
     }
@@ -104,31 +101,39 @@ impl Eventer {
     }
     async fn ms_currencies(
         self: Arc<Self>,
-        tx: Sender<Vec<rust_moysklad::Currency>>,
+        tx: oneshot::Sender<Vec<rust_moysklad::Currency>>,
     ) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Currency>().await?;
-        tx.send(result).unwrap();
+        if let Err(e) = tx.send(result) {
+            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        }
         Ok(())
     }
     async fn ms_countries(
         self: Arc<Self>,
-        tx: Sender<Vec<rust_moysklad::Country>>,
+        tx: oneshot::Sender<Vec<rust_moysklad::Country>>,
     ) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Country>().await?;
-        tx.send(result).unwrap();
+        if let Err(e) = tx.send(result) {
+            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        }
         Ok(())
     }
-    async fn ms_uoms(self: Arc<Self>, tx: Sender<Vec<rust_moysklad::Uom>>) -> anyhow::Result<()> {
+    async fn ms_uoms(self: Arc<Self>, tx: oneshot::Sender<Vec<rust_moysklad::Uom>>) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Uom>().await?;
-        tx.send(result).unwrap();
+        if let Err(e) = tx.send(result) {
+            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        }
         Ok(())
     }
     async fn ms_products(
         self: Arc<Self>,
-        tx: Sender<Vec<rust_moysklad::Product>>,
+        tx: oneshot::Sender<Vec<rust_moysklad::Product>>,
     ) -> anyhow::Result<()> {
         let result = self.ms_client.get_all::<rust_moysklad::Product>().await?;
-        tx.send(result).unwrap();
+        if let Err(e) = tx.send(result) {
+            tracing::error!("Ошибка отправки событий в очередь -> {e:?}");
+        }
         Ok(())
     }
     async fn get_woo_data(self: Arc<Self>) -> anyhow::Result<WooData> {
@@ -266,12 +271,13 @@ async fn process_event(
     Ok(())
 }
 
-async fn generator(tx: UnboundedSender<Vec<MsEvent>>, events_storage: Arc<EventsStorage>) {
+async fn generator(tx: Sender<Vec<MsEvent>>, events_storage: Arc<EventsStorage>) {
     loop {
+        let tx = tx.clone();
         match events_storage.get().await {
             Ok(events) => {
                 if !events.is_empty() {
-                    if let Err(e) = tx.send(events) {
+                    if let Err(e) = tx.send(events).await {
                         tracing::warn!("Ошибка отправки событий в очередь -> {e:?}");
                     }
                 }

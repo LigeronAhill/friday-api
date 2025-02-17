@@ -6,7 +6,7 @@ use crate::{
     utils::{convert_to_create, convert_to_update, pause, MsData, WooData},
     AppError,
 };
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot;
 
 pub struct Eventer {
@@ -30,7 +30,7 @@ impl Eventer {
         })
     }
     pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
-        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let (tx, rx) = channel(10);
         tokio::spawn(generator(tx, self.clone().events_storage.clone()));
         tokio::spawn(clean(self.clone().events_storage.clone()));
         self.processor(rx).await?;

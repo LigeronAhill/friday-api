@@ -261,10 +261,12 @@ async fn process_event(
             if let Some(woo_converted_product_to_create) =
                 convert_to_create(ms_product, ms_data, woo_data, stock)
             {
-                woo_client
+                if woo_client
                     .create::<rust_woocommerce::Product>(woo_converted_product_to_create)
                     .await
-                    .map_err(|e| AppError::Custom(e.to_string()))?;
+                    .map_err(|e| AppError::Custom(e.to_string())).is_err() {
+                    return Ok(());
+                }
             }
         }
         "UPDATE" => {

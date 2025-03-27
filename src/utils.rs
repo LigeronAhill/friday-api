@@ -207,11 +207,12 @@ pub fn convert_to_update(
         None => woo_product.weight.clone(),
     };
     let mut result = woo::Product::builder();
-    let (status, catalog_visibility) = if ms_product.archived.is_some_and(|a| a) {
-        (woo::ProductStatus::Draft, woo::CatalogVisibility::Hidden)
-    } else {
-        (woo::ProductStatus::Publish, woo::CatalogVisibility::Visible)
-    };
+    let (status, catalog_visibility) =
+        if ms_product.archived.is_some_and(|a| a) || ms_product.archived.is_none() {
+            (woo::ProductStatus::Draft, woo::CatalogVisibility::Hidden)
+        } else {
+            (woo::ProductStatus::Publish, woo::CatalogVisibility::Visible)
+        };
     let sku = woo_product.sku.clone();
     let quantity = get_quantity(&sku, stock) as i32;
     result

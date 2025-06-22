@@ -1,0 +1,5 @@
+### GET request to example server
+GET {{devBaseUrl}}/api/v1/currencies
+
+###
+GET {{prodBaseUrl}}/api/v1/currencies

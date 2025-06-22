@@ -1,0 +1,17 @@
+meta {
+  name: stock
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/api/v1/stock?search=omnia
+  body: none
+  auth: none
+}
+
+params:query {
+  search: omnia
+  ~limit: 10
+  ~offset: 12
+}

@@ -1,0 +1,17 @@
+meta {
+  name: stock
+  type: http
+  seq: 4
+}
+
+get {
+  url: 127.0.0.1:8000/api/v1/stock?search=AW LOOP 2795 4
+  body: none
+  auth: none
+}
+
+params:query {
+  search: AW LOOP 2795 4
+  ~offset: 1
+  ~limit: 10
+}

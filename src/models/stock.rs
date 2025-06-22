@@ -2,11 +2,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Currency {
+#[derive(Clone, Debug, Serialize, Deserialize, FromRow)]
+pub struct Stock {
     pub id: uuid::Uuid,
+    pub supplier: String,
     pub name: String,
-    pub char_code: String,
-    pub rate: f64,
+    pub stock: f64,
     pub updated: DateTime<Utc>,
 }

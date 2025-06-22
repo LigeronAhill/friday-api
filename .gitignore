@@ -4,3 +4,10 @@ target
 Secrets*.toml
 .ignore
 
+.shuttle*
+rest/friday-api/render
+.idea
+*.env
+/rest
+rest/
+rest

@@ -1,0 +1,17 @@
+meta {
+  name: цитата
+  type: http
+  seq: 6
+}
+
+get {
+  url: http://api.forismatic.com/api/1.0/?method=getQuote&format=json&lang=ru
+  body: none
+  auth: none
+}
+
+params:query {
+  method: getQuote
+  format: json
+  lang: ru
+}

@@ -1,0 +1,15 @@
+meta {
+  name: ms_webhook
+  type: http
+  seq: 9
+}
+
+post {
+  url: 127.0.0.1:8000/webhooks/ms
+  body: json
+  auth: none
+}
+
+body:json {
+  {"auditContext":{"meta":{"type":"audit","href":"https://api.moysklad.ru/api/remap/1.2/audit/a45fec36-e3c0-11ef-0a80-1a3f0023da84"},"uid":"admin@provotorov2","moment":"2025-02-05 15:56:40"},"events":[{"meta":{"type":"product","href":"https://api.moysklad.ru/api/remap/1.2/entity/product/0cd745e2-af81-11ee-0a80-029300050d5f"},"updatedFields":["salePrices"],"action":"UPDATE","accountId":"7feaddfe-d5e2-11ed-0a80-06c30000973f"}]}
+}

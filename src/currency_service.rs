@@ -1,77 +1,89 @@
-use std::sync::Arc;
-
-use actix_web::{get, web, HttpResponse};
-use tracing::info;
-
-use crate::{
-    models::{AppState, CurrenciesFromCbr},
-    Result,
-};
+use crate::{models::Currency, storage::CurrencyStorage, utils::pause};
+use serde::Deserialize;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 // url для получения курсов валют
 const CBR_URI: &str = "https://www.cbr-xml-daily.ru/daily_json.js";
 
-#[async_trait::async_trait]
-pub trait CurrencyStorage: Send + Sync {
-    async fn update_currencies(&self, input: CurrenciesFromCbr) -> Result<()>;
-    async fn get_latest_currency_rates(&self) -> Result<Vec<crate::models::Currency>>;
-    async fn get_monthly_currency_rates(&self) -> crate::Result<Vec<crate::models::Currency>>;
+#[derive(Deserialize)]
+struct CurrencyInput {
+    #[serde(rename = "CharCode")]
+    char_code: String,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Value")]
+    value: f64,
 }
-/// Служба для работы с курсами валют
-pub struct CurrencyService {
-    /// клиент для отправки запросов
-    client: reqwest::Client,
-    /// база данных, имплементирующая необходимые методы
-    storage: Arc<dyn CurrencyStorage>,
+impl From<CurrencyInput> for Currency {
+    fn from(input: CurrencyInput) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            name: input.name,
+            char_code: input.char_code,
+            rate: input.value,
+            updated: chrono::Utc::now(),
+        }
+    }
 }
-impl CurrencyService {
-    /// создание нового экземпляра слуюбы валют
-    pub fn new(storage: Arc<dyn CurrencyStorage>) -> Self {
-        let client = reqwest::Client::builder().gzip(true).build().unwrap();
-        Self { client, storage }
-    }
-    /// обновление курсов валют в базе данных
-    pub async fn update_currencies(&self) -> Result<()> {
-        let response: CurrenciesFromCbr = self.client.get(CBR_URI).send().await?.json().await?;
-        self.storage.update_currencies(response).await?;
-        Ok(())
-    }
-    pub async fn run(&self) {
-        loop {
-            info!("Обновляю курсы валют");
-            match self.update_currencies().await {
-                Ok(_) => {
-                    let now = chrono::Local::now();
-                    let tomorrow = now
-                        .checked_add_days(chrono::Days::new(1))
+
+pub async fn run(storage: Arc<CurrencyStorage>) {
+    let (tx, rx) = unbounded_channel::<Vec<Currency>>();
+    tokio::spawn(async move {
+        generator(tx).await;
+    });
+    saver(rx, storage).await;
+}
+async fn generator(tx: UnboundedSender<Vec<Currency>>) {
+    let client = reqwest::Client::builder().gzip(true).build().unwrap();
+    loop {
+        tracing::info!("Начинаю запрос курсов валют");
+        match client.get(CBR_URI).send().await {
+            Ok(response) => match response.json::<serde_json::Value>().await {
+                Ok(v) => {
+                    let valutes: HashMap<String, CurrencyInput> = v
+                        .get("Valute")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
                         .unwrap_or_default();
-                    info!(
-                        "Курсы валют обновлены {}. Пауза на 24 часа до {}",
-                        now.format("%d.%m.%Y в %T"),
-                        tomorrow.format("%d.%m.%Y в %T"),
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(60 * 60 * 24)).await;
+                    let currencies: Vec<Currency> =
+                        valutes.into_values().map(Currency::from).collect();
+                    let quantity = currencies.len();
+                    if !currencies.is_empty() {
+                        if tx.send(currencies).is_err() {
+                            tracing::error!("Не удалось отправить данные о курсах валют в канал");
+                        } else {
+                            tracing::info!("Получено {quantity} курсов валют, пауза на 4 часа");
+                            pause(4).await;
+                        }
+                    } else {
+                        tracing::error!("Получен пустой ответ на запрос курсов валют, попробую еще раз через час");
+                        pause(1).await;
+                    }
                 }
                 Err(e) => {
-                    info!("Возникла ошибка приобновлении курсов валют: {e:?}");
-                    info!("Попробую еще раз через 10 минут");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10 * 60)).await;
+                    tracing::error!(
+                        "Ошибка чтения ответа на запрос курсов валют: {e:?}\n Пауза на 1 час"
+                    );
+                    pause(1).await;
                 }
+            },
+            Err(e) => {
+                tracing::error!("Ошибка получения курсов валют: {e:?}\n Пауза на 1 час");
+                pause(1).await
             }
         }
     }
 }
-#[get("/api/currencies")]
-pub async fn currencies(state: web::Data<AppState>) -> HttpResponse {
-    match state.currency_storage.get_latest_currency_rates().await {
-        Ok(r) => HttpResponse::Ok().json(r),
-        Err(e) => HttpResponse::InternalServerError().json(e),
-    }
-}
-#[get("/api/currencies/month")]
-pub async fn monthly_currencies(state: web::Data<AppState>) -> HttpResponse {
-    match state.currency_storage.get_monthly_currency_rates().await {
-        Ok(r) => HttpResponse::Ok().json(r),
-        Err(e) => HttpResponse::InternalServerError().json(e),
+
+async fn saver(mut rx: UnboundedReceiver<Vec<Currency>>, storage: Arc<CurrencyStorage>) {
+    while let Some(result) = rx.recv().await {
+        match storage.update(result).await {
+            Ok(updated) => {
+                tracing::info!("Обновлено {updated} курсов валют");
+            }
+            Err(e) => {
+                tracing::error!("Ошибка сохранения курсов валют: {e:?}");
+            }
+        }
     }
 }

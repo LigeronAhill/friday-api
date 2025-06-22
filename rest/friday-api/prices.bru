@@ -1,0 +1,15 @@
+meta {
+  name: prices
+  type: http
+  seq: 8
+}
+
+get {
+  url: 127.0.0.1:8000/api/v1/prices
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  : @file(/Users/aleksandrprovotorov/Downloads/priceToCSV.xlsx)
+}

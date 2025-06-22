@@ -1,4 +1,5 @@
 mod currency_service;
+mod tg_bot;
 mod error;
 use std::sync::Arc;
 
@@ -84,9 +85,10 @@ impl Service {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .expect("Failed to bind address to listener");
-        if let Err(e) = axum::serve(listener, router).await {
-            tracing::error!("{e:?}");
-        }
+        let tg_token = self.secrets.get("WINSTON_TOKEN").expect("WINSTON_TOKEN not set");
+        let bot = tg_bot::TGBot::new(&tg_token);
+        tokio::spawn(async move { axum::serve(listener, router).await });
+        bot.run().await;
     }
 }
 

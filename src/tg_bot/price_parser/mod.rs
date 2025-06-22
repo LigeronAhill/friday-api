@@ -1,26 +1,26 @@
 mod fancy;
 mod fox;
 mod supplier;
+use std::sync::Arc;
 use std::{collections::HashMap, io::Cursor};
 pub use supplier::Supplier;
 
+use crate::storage::PriceStorage;
 use anyhow::Result;
 use calamine::open_workbook_auto_from_rs;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::unbounded_channel;
 
-pub async fn file_router(url: &str) -> Result<String> {
+pub async fn file_router(url: &str, price_storage: Arc<PriceStorage>) -> Result<String> {
     let body = reqwest::get(url).await?.bytes().await?;
     let cursor = Cursor::new(body.clone());
     let workbook = open_workbook_auto_from_rs(cursor.clone())?;
     let supplier = Supplier::try_from(workbook)?;
-    let answer =
-        format!("Получен файл прайс-листов от поставщика '{supplier}', доступен по ссылке: {url}");
     let (tx, mut rx) = unbounded_channel();
     match supplier {
         Supplier::Fancy => {
-            tokio::spawn(fancy::parse(cursor, tx));
+            tokio::spawn(async move { fancy::parse(cursor, tx).await });
         }
         Supplier::Fox => {
             tokio::spawn(fox::parse(cursor, tx));
@@ -30,23 +30,19 @@ pub async fn file_router(url: &str) -> Result<String> {
     while let Some(p) = rx.recv().await {
         prices.push(p);
     }
-    let prices = deduplicate(prices);
-    let uri = "https://friday-api-vqkh.shuttle.app/api/v1/prices";
-    // let uri = "http://localhost:8000/api/v1/prices";
-    let client = reqwest::Client::new();
-    let _response = client
-        .post(uri)
-        .json(&prices)
-        .send()
-        .await?
-        .error_for_status()?;
-
+    let prices = deduplicate(prices)
+        .into_iter()
+        .map(|i| i.convert())
+        .collect::<Vec<_>>();
+    let updated = price_storage.update(prices).await?;
+    let answer =
+        format!("Получен файл прайс-листов от поставщика '{supplier}', доступен по ссылке: {url}, добавлено строк в БД: {updated}.");
     Ok(answer)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
-pub struct PriceItem {
+pub struct ParsedPriceItem {
     #[builder(setter(into))]
     pub supplier: String,
     #[builder(setter(into))]
@@ -81,13 +77,33 @@ pub struct PriceItem {
     pub recommended_coupon_price: f64,
 }
 
-impl PriceItem {
-    pub fn builder() -> PriceItemBuilder {
-        PriceItemBuilder::default()
+impl ParsedPriceItem {
+    pub fn builder() -> ParsedPriceItemBuilder {
+        ParsedPriceItemBuilder::default()
+    }
+    pub fn convert(self) -> crate::models::PriceItem {
+        crate::models::PriceItem {
+            supplier: self.supplier,
+            manufacturer: self.manufacturer,
+            collection: self.collection,
+            name: self.name,
+            widths: self.widths,
+            pile_composition: self.pile_composition,
+            pile_height: self.pile_height,
+            total_height: self.total_height,
+            pile_weight: self.pile_weight,
+            total_weight: self.total_weight,
+            durability_class: self.durability_class,
+            fire_certificate: self.fire_certificate,
+            purchase_roll_price: self.purchase_roll_price,
+            purchase_coupon_price: self.purchase_coupon_price,
+            recommended_roll_price: self.recommended_roll_price,
+            recommended_coupon_price: self.recommended_coupon_price,
+        }
     }
 }
 
-impl PriceItemBuilder {
+impl ParsedPriceItemBuilder {
     fn name_build(&self) -> String {
         let raw_name = format!(
             "{manufacturer} {collection}",
@@ -118,7 +134,7 @@ impl PriceItemBuilder {
     }
 }
 
-fn deduplicate(input: Vec<PriceItem>) -> Vec<PriceItem> {
+fn deduplicate(input: Vec<ParsedPriceItem>) -> Vec<ParsedPriceItem> {
     let mut price_map = HashMap::new();
     for item in input {
         price_map.insert(
@@ -160,7 +176,7 @@ mod tests {
     use anyhow::Result;
     #[test]
     fn test_price_item_builder_success() -> Result<()> {
-        let price = PriceItem::builder()
+        let price = ParsedPriceItem::builder()
             .supplier("test supplier")
             .manufacturer("test manufacturer")
             .collection("test collection")
@@ -174,7 +190,7 @@ mod tests {
     }
     #[test]
     fn test_price_item_builder_failed() -> Result<()> {
-        let price_without_manufacturer = PriceItem::builder()
+        let price_without_manufacturer = ParsedPriceItem::builder()
             .supplier("test supplier")
             .collection("test collection")
             .widths(1.0)
@@ -183,7 +199,7 @@ mod tests {
             .purchase_coupon_price(100.)
             .build();
         assert!(price_without_manufacturer.is_err());
-        let price_without_supplier = PriceItem::builder()
+        let price_without_supplier = ParsedPriceItem::builder()
             .manufacturer("test manufacturer")
             .collection("test collection")
             .widths(1.0)
@@ -192,7 +208,7 @@ mod tests {
             .purchase_coupon_price(100.)
             .build();
         assert!(price_without_supplier.is_err());
-        let price_without_prices = PriceItem::builder()
+        let price_without_prices = ParsedPriceItem::builder()
             .supplier("test supplier")
             .manufacturer("test manufacturer")
             .collection("test collection")
@@ -201,7 +217,7 @@ mod tests {
             .pile_composition("test pile composition")
             .build();
         assert!(price_without_prices.is_err());
-        let price_without_width = PriceItem::builder()
+        let price_without_width = ParsedPriceItem::builder()
             .supplier("test supplier")
             .manufacturer("test manufacturer")
             .collection("test collection")

@@ -79,7 +79,7 @@ impl Service {
             currency_storage.clone(),
             stock_storage.clone(),
             events_storage.clone(),
-            price_storage,
+            price_storage.clone(),
         );
         let router = routes::init(state);
         let listener = tokio::net::TcpListener::bind(addr)
@@ -88,7 +88,7 @@ impl Service {
         let tg_token = self.secrets.get("WINSTON_TOKEN").expect("WINSTON_TOKEN not set");
         let bot = tg_bot::TGBot::new(&tg_token);
         tokio::spawn(async move { axum::serve(listener, router).await });
-        bot.run().await;
+        bot.run(price_storage, stock_storage, currency_storage).await;
     }
 }
 

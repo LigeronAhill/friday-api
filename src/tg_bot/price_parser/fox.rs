@@ -5,10 +5,10 @@ use calamine::{open_workbook_auto_from_rs, DataType, Reader};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::instrument;
 
-use super::PriceItem;
+use super::ParsedPriceItem;
 
 #[instrument(name = "parsing fox", skip_all)]
-pub async fn parse(cursor: Cursor<Bytes>, tx: UnboundedSender<PriceItem>) {
+pub async fn parse(cursor: Cursor<Bytes>, tx: UnboundedSender<ParsedPriceItem>) {
     if let Ok(mut workbook) = open_workbook_auto_from_rs(cursor) {
         let sheets = workbook.worksheets();
         for (sheet_name, sheet) in sheets {
@@ -26,7 +26,7 @@ pub async fn parse(cursor: Cursor<Bytes>, tx: UnboundedSender<PriceItem>) {
 }
 
 #[instrument(name = "parsing carpet tile", skip_all)]
-fn parse_carpet_tile(table: calamine::Range<calamine::Data>, sender: UnboundedSender<PriceItem>) {
+fn parse_carpet_tile(table: calamine::Range<calamine::Data>, sender: UnboundedSender<ParsedPriceItem>) {
     for row in table.rows() {
         if let Some(pcp) = row.get(13).and_then(|d| {
             d.to_string()
@@ -82,7 +82,7 @@ fn parse_carpet_tile(table: calamine::Range<calamine::Data>, sender: UnboundedSe
             else {
                 continue;
             };
-            let mut price_item = PriceItem::builder();
+            let mut price_item = ParsedPriceItem::builder();
             price_item
                 .manufacturer(brand)
                 .collection(collection)
@@ -118,7 +118,7 @@ fn parse_carpet_tile(table: calamine::Range<calamine::Data>, sender: UnboundedSe
 #[instrument(name = "parsing commercial linoleum", skip_all)]
 fn parse_commercial_linoleum(
     table: calamine::Range<calamine::Data>,
-    sender: UnboundedSender<PriceItem>,
+    sender: UnboundedSender<ParsedPriceItem>,
 ) {
     for row in table.rows() {
         let Some(prp) = row.get(11).and_then(|d| d.to_string().parse::<f64>().ok()) else {
@@ -133,7 +133,7 @@ fn parse_commercial_linoleum(
         let Some(linoleum_type) = row.get(2).map(|d| d.to_string().trim().to_uppercase()) else {
             continue;
         };
-        let mut price_item = PriceItem::builder();
+        let mut price_item = ParsedPriceItem::builder();
         price_item
             .purchase_roll_price(prp)
             .supplier("БРАТЕЦ ЛИС")

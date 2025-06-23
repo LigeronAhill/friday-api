@@ -6,7 +6,7 @@ use std::{collections::HashMap, io::Cursor};
 pub use supplier::Supplier;
 
 use crate::storage::PriceStorage;
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use calamine::open_workbook_auto_from_rs;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
@@ -34,10 +34,15 @@ pub async fn file_router(url: &str, price_storage: Arc<PriceStorage>) -> Result<
         .into_iter()
         .map(|i| i.convert())
         .collect::<Vec<_>>();
-    let updated = price_storage.update(prices).await?;
-    let answer =
+    let context = format!("{supplier} -> {}", prices.len());
+    if !prices.is_empty() {
+        let updated = price_storage.update(prices).await.context(context)?;
+        let answer =
         format!("Получен файл прайс-листов от поставщика '{supplier}', доступен по ссылке: {url}, добавлено строк в БД: {updated}.");
-    Ok(answer)
+        Ok(answer)
+    } else {
+        Err(anyhow!("Empty parse result"))
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Builder)]

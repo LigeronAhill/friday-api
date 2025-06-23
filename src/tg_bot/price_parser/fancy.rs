@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use super::ParsedPriceItem;
 use bytes::Bytes;
-use calamine::{open_workbook_auto_from_rs, Data, DataType, Range, Reader};
+use calamine::{open_workbook_auto_from_rs, Data, Range, Reader};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::instrument;
 
@@ -18,7 +18,28 @@ pub async fn parse(cursor: Cursor<Bytes>, tx: UnboundedSender<ParsedPriceItem>) 
 #[instrument(name = "getting storage program range", skip_all)]
 fn parse_fancy_v2(sheet: &Range<Data>, tx: UnboundedSender<ParsedPriceItem>) {
     const SUPPLIER: &str = "ФЭНСИ";
-    const MANUFACTURER: &str = "Производитель";
+    const MANUFACTURERS: [&str; 20] = [
+        "ФэнсиБлокс",
+        "ФэнсиЛум",
+        "Assotiated Weavers*   ",
+        "Tasibel    ",
+        "Betap     (новинка)",
+        "Creatuft",
+        "Lano",
+        "Osta",
+        "Ligne Pure",
+        "Haima",
+        "Versa",
+        "BN International",
+        "Dollken",
+        "Homakoll",
+        "TASIBEL",
+        "LANO",
+        "CONDOR",
+        "BETAP",
+        "DOLLKEN",
+        "HOMA",
+    ];
     const COLLECTION: [&str; 2] = ["Коллекция", "Коллекция - основа"];
     const WIDTH: [&str; 2] = ["Ширина", "Ширина, см"];
     const PILE_COMPOSITION: [&str; 2] = ["Состав", "Состав ворса"];
@@ -56,7 +77,6 @@ fn parse_fancy_v2(sheet: &Range<Data>, tx: UnboundedSender<ParsedPriceItem>) {
         }
         return false;
     };
-    let mut manufacturer_column = usize::MAX;
     let mut collection_column = usize::MAX;
     let mut width_column = usize::MAX;
     let mut pile_composition_column = usize::MAX;
@@ -71,12 +91,6 @@ fn parse_fancy_v2(sheet: &Range<Data>, tx: UnboundedSender<ParsedPriceItem>) {
     let mut manufacturer = String::new();
     for row in sheet.rows() {
         if is_headers(row) {
-            manufacturer_column = row
-                .iter()
-                .enumerate()
-                .find(|(_, c)| *c == MANUFACTURER)
-                .map(|(i, _)| i)
-                .unwrap_or(usize::MAX);
             collection_column = row
                 .iter()
                 .enumerate()
@@ -143,21 +157,20 @@ fn parse_fancy_v2(sheet: &Range<Data>, tx: UnboundedSender<ParsedPriceItem>) {
                 .find(|(_, c)| RECOMMENDED_COUPON_PRICE.contains(&c.to_string().as_str()))
                 .map(|(i, _)| i)
                 .unwrap_or(usize::MAX);
-        } else if row.first().is_some_and(|w| !w.is_empty())
-            && row.get(1).is_some_and(|w| w.is_empty())
-            && row.get(2).is_some_and(|w| w.is_empty())
-            && row.get(3).is_some_and(|w| w.is_empty())
+        } else if row
+            .first()
+            .is_some_and(|w| MANUFACTURERS.contains(&w.to_string().as_str()))
         {
             manufacturer = row.first().map(|w| w.to_string()).unwrap_or_default();
         } else if collection_column != usize::MAX {
+            if row
+                .first()
+                .is_some_and(|w| MANUFACTURERS.contains(&w.to_string().as_str()))
+            {
+                manufacturer = row.first().map(|w| w.to_string()).unwrap_or_default();
+            }
             let mut price_item = ParsedPriceItem::builder();
             price_item.supplier(SUPPLIER);
-            if manufacturer_column != usize::MAX {
-                manufacturer = row
-                    .get(manufacturer_column)
-                    .map(|w| w.to_string())
-                    .unwrap_or_default();
-            }
             price_item.manufacturer(&manufacturer);
             let collection = row
                 .get(collection_column)

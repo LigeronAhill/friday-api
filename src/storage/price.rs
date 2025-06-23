@@ -56,7 +56,7 @@ impl PriceStorage {
                 .push_bind(input.recommended_roll_price)
                 .push_bind(input.recommended_coupon_price);
         });
-        let conflict = "ON CONFLICT(supplier, manufacturer, collection) DO UPDATE SET widths = EXCLUDED.widths,
+        let conflict = " ON CONFLICT(supplier, manufacturer, collection) DO UPDATE SET widths = EXCLUDED.widths,
         pile_composition = EXCLUDED.pile_composition,
         pile_height = EXCLUDED.pile_height,
         total_height = EXCLUDED.total_height,

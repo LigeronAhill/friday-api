@@ -1,6 +1,6 @@
 mod currency_service;
-mod tg_bot;
 mod error;
+mod tg_bot;
 use std::sync::Arc;
 
 pub use error::{AppError, Result};
@@ -24,6 +24,12 @@ impl Service {
         Self { pool, secrets }
     }
     pub async fn run(&self, addr: std::net::SocketAddr) {
+        if let Err(e) = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations")
+            .execute(&self.pool)
+            .await
+        {
+            tracing::error!("{e:?}");
+        }
         sqlx::migrate!()
             .run(&self.pool)
             .await
@@ -85,10 +91,14 @@ impl Service {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .expect("Failed to bind address to listener");
-        let tg_token = self.secrets.get("WINSTON_TOKEN").expect("WINSTON_TOKEN not set");
+        let tg_token = self
+            .secrets
+            .get("WINSTON_TOKEN")
+            .expect("WINSTON_TOKEN not set");
         let bot = tg_bot::TGBot::new(&tg_token);
         tokio::spawn(async move { axum::serve(listener, router).await });
-        bot.run(price_storage, stock_storage, currency_storage).await;
+        bot.run(price_storage, stock_storage, currency_storage)
+            .await;
     }
 }
 

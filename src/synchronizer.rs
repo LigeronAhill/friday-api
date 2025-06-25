@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::info;
 
 use crate::{
     models::Stock,
@@ -37,6 +38,7 @@ impl Synchronizer {
         })
     }
     async fn sync(self: Arc<Self>) -> Result<()> {
+        info!("Start synchronization!");
         let mut stock = Vec::new();
         let limit = 500;
         let mut offset = 0;
@@ -54,6 +56,7 @@ impl Synchronizer {
                 offset += limit;
             }
         }
+        info!("Getting MS DATA");
         let (ms_data, safira_data, lc_data) = tokio::join!(
             self.clone().get_ms_data(),
             self.clone().get_woo_data(self.safira_client.base_url()),
@@ -61,15 +64,22 @@ impl Synchronizer {
         );
         let ms_data = ms_data?;
         let products = ms_data.products.values().cloned().collect::<Vec<_>>();
+        info!(
+            "MS DATA received succefully with {} products",
+            products.len()
+        );
         self.clone().update_ms_stock(&stock, &products).await?;
+        info!("Getting WOO DATA");
         let safira_data = safira_data?;
         let lc_data = lc_data?;
         let woos = vec![
             (self.safira_client.base_url(), safira_data),
             (self.lc_client.base_url(), lc_data),
         ];
+        info!("WOO DATA received succefully");
         let (result_sender, mut result_receiver) = mpsc::unbounded_channel();
         for (base_url, woo_data) in woos {
+            info!("Syncing {base_url}");
             let mut products_to_create = Vec::new();
             let mut products_to_update = Vec::new();
             let mut products_to_delete = Vec::new();
@@ -160,12 +170,13 @@ impl Synchronizer {
                 });
             }
         }
-        drop(result_sender);
+        // drop(result_sender);
         while let Some(result) = result_receiver.recv().await {
             if let Err(e) = result {
                 tracing::error!("{e:?}");
             }
         }
+
         Ok(())
     }
     async fn update_ms_stock(
@@ -323,10 +334,9 @@ impl Synchronizer {
         Ok(())
     }
     pub async fn run(self: Arc<Self>) {
-        if let Err(e) = self.clone().sync().await {
-            tracing::error!("{e:?}");
-        } else {
-            tracing::info!("Сайты синхронизированы");
+        while let Err(e) = self.clone().sync().await {
+            tracing::error!("Ошибка синхронизации: --> {e:?}");
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
         let now = chrono::Utc::now();
         tracing::info!("Сейчас {current}", current = now.to_rfc3339());

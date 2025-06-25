@@ -170,7 +170,7 @@ impl Synchronizer {
                 });
             }
         }
-        // drop(result_sender);
+        drop(result_sender);
         while let Some(result) = result_receiver.recv().await {
             if let Err(e) = result {
                 tracing::error!("{e:?}");

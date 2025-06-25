@@ -136,6 +136,10 @@ impl Synchronizer {
                 products_to_delete.push(delete)
             }
             if !products_to_create.is_empty() {
+                info!(
+                    "Got {} products to create in {base_url}",
+                    products_to_create.len()
+                );
                 let sender = result_sender.clone();
                 let woo_client = self.clone().woo_client(base_url.clone());
                 tokio::spawn(async move {
@@ -146,8 +150,14 @@ impl Synchronizer {
                         tracing::error!("Error sending {e:?}");
                     }
                 });
+            } else {
+                info!("No products to create in {base_url}");
             }
             if !products_to_update.is_empty() {
+                info!(
+                    "Got {} products to update in {base_url}",
+                    products_to_update.len()
+                );
                 let sender = result_sender.clone();
                 let woo_client = self.clone().woo_client(base_url.clone());
                 tokio::spawn(async move {
@@ -156,8 +166,14 @@ impl Synchronizer {
                         tracing::error!("Error sending {e:?}");
                     }
                 });
+            } else {
+                info!("No products to update in {base_url}");
             }
             if !products_to_delete.is_empty() {
+                info!(
+                    "Got {} products to delete in {base_url}",
+                    products_to_delete.len()
+                );
                 let sender = result_sender.clone();
                 let woo_client = self.clone().woo_client(base_url);
                 tokio::spawn(async move {
@@ -168,14 +184,20 @@ impl Synchronizer {
                         tracing::error!("Error sending {e:?}");
                     }
                 });
+            } else {
+                info!("No products to delete in {base_url}");
             }
         }
         drop(result_sender);
+        let mut count = 0;
         while let Some(result) = result_receiver.recv().await {
             if let Err(e) = result {
                 tracing::error!("{e:?}");
+            } else {
+                count += result.unwrap().len();
             }
         }
+        info!("Total count of synchronized products: {count}");
 
         Ok(())
     }

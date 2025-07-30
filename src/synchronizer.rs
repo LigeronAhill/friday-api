@@ -65,8 +65,6 @@ impl Synchronizer {
         let ms_data = ms_data?;
         let products = ms_data.products.values().cloned().collect::<Vec<_>>();
         info!(
-            "MS DATA received succefully with {} products",
-            products.len()
             "Получено {len} продуктов из Мой Склад для обновления",
             len = products.len()
         );

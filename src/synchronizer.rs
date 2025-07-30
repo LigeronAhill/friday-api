@@ -67,11 +67,21 @@ impl Synchronizer {
         info!(
             "MS DATA received succefully with {} products",
             products.len()
+            "Получено {len} продуктов из Мой Склад для обновления",
+            len = products.len()
         );
         self.clone().update_ms_stock(&stock, &products).await?;
         info!("Getting WOO DATA");
         let safira_data = safira_data?;
+        info!(
+            "Получено {len} продуктов из Сафира для обновления",
+            len = safira_data.products.len()
+        );
         let lc_data = lc_data?;
+        info!(
+            "Получено {len} продуктов из Luxcarpets для обновления",
+            len = lc_data.products.len()
+        );
         let woos = vec![
             (self.safira_client.base_url(), safira_data),
             (self.lc_client.base_url(), lc_data),

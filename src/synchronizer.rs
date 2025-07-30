@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::info;
 
 use crate::{
     models::Stock,
@@ -61,9 +62,21 @@ impl Synchronizer {
         );
         let ms_data = ms_data?;
         let products = ms_data.products.values().cloned().collect::<Vec<_>>();
+        info!(
+            "Получено {len} продуктов из Мой Склад для обновления",
+            len = products.len()
+        );
         self.clone().update_ms_stock(&stock, &products).await?;
         let safira_data = safira_data?;
+        info!(
+            "Получено {len} продуктов из Сафира для обновления",
+            len = safira_data.products.len()
+        );
         let lc_data = lc_data?;
+        info!(
+            "Получено {len} продуктов из Luxcarpets для обновления",
+            len = lc_data.products.len()
+        );
         let woos = vec![
             (self.safira_client.base_url(), safira_data),
             (self.lc_client.base_url(), lc_data),

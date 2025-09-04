@@ -426,7 +426,12 @@ pub fn get_quantity(sku: &str, stock: &[Stock]) -> f64 {
     for word in sku.split_whitespace() {
         temp = temp
             .into_iter()
-            .filter(|s| s.name.to_uppercase().contains(&word.to_uppercase()))
+            .filter(|s| {
+                s.name
+                    .replace(',', ".")
+                    .to_uppercase()
+                    .contains(&word.replace(',', ".").to_uppercase())
+            })
             .collect::<Vec<_>>();
     }
     temp.iter().map(|s| s.stock).sum::<f64>()

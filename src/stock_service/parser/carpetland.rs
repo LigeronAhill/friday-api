@@ -45,7 +45,10 @@ async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<
             let brand = row.first().map(|d| d.to_string()).unwrap_or_default();
             let collection = row.get(1).map(|d| d.to_string()).unwrap_or_default();
             let color = row.get(2).map(|d| d.to_string()).unwrap_or_default();
-            let width = row.get(3).map(|d| d.to_string()).unwrap_or_default();
+            let width = row
+                .get(3)
+                .map(|d| d.to_string().replace(',', "."))
+                .unwrap_or_default();
             let name = format!("{brand} {collection} {color} {width}");
             let item = Stock {
                 name: clear_string(&name),

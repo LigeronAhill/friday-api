@@ -21,6 +21,12 @@ pub fn convert_to_create(
 ) -> Option<impl Serialize + Clone + Send + Sync + 'static> {
     let sku = ms_product.article.as_ref()?.to_uppercase();
     let quantity = get_quantity(&sku, stock) as i32;
+    let country = ms_data
+        .countries
+        .iter()
+        .find(|c| ms_product.country.clone().is_some_and(|m| c.meta == m.meta))
+        .map(|f| f.name.clone())
+        .unwrap_or(String::from("Россия"));
     let mut uom = ms_data
         .uoms
         .iter()
@@ -80,6 +86,15 @@ pub fn convert_to_create(
         .weight(format!("{weight:.2}"))
         .stock_status(woo::StockStatus::Onbackorder)
         .stock_quantity(quantity);
+    if let Some(woo_attribute) = woo_data.attributes.get("Страна") {
+        let woo_att = woo::Attribute::builder()
+            .id(woo_attribute.id)
+            .name("Страна")
+            .visible()
+            .option(country)
+            .build();
+        result.attribute(woo_att);
+    }
     let mut length = 1.0;
     let mut width = 1.0;
     let mut height = 1.0;
@@ -206,6 +221,14 @@ pub fn convert_to_update(
         Some(w) => format!("{w:.2}"),
         None => woo_product.weight.clone(),
     };
+
+    let country = ms_data
+        .countries
+        .iter()
+        .find(|c| ms_product.country.clone().is_some_and(|m| c.meta == m.meta))
+        .map(|f| f.name.clone())
+        .unwrap_or(String::from("Россия"));
+
     let mut result = woo::Product::builder();
     let (status, catalog_visibility) =
         if ms_product.archived.is_some_and(|a| a) || ms_product.archived.is_none() {
@@ -231,6 +254,15 @@ pub fn convert_to_update(
         .weight(weight);
     for cat in woo_product.categories.iter() {
         result.categories(cat.id);
+    }
+    if let Some(woo_attribute) = woo_data.attributes.get("Страна") {
+        let woo_att = woo::Attribute::builder()
+            .id(woo_attribute.id)
+            .name("Страна")
+            .visible()
+            .option(country)
+            .build();
+        result.attribute(woo_att);
     }
     let mut length = 1.0;
     let mut width = 1.0;

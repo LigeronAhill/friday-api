@@ -125,7 +125,13 @@ impl Synchronizer {
                     }
                 }
                 for (sku, product) in woo_data.products.iter() {
-                    if !ms_data.products.contains_key(sku) {
+                    if !ms_data.products.contains_key(sku)
+                        || ms_data
+                            .products
+                            .get(sku.as_str())
+                            .as_ref()
+                            .is_some_and(|p| p.archived.as_ref().is_some_and(|a| *a))
+                    {
                         // delete woo product
                         if let Err(e) = delete_tx.send(product.id) {
                             tracing::error!("Error sending {sku} {e:?}");

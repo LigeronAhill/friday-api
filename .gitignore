@@ -11,3 +11,4 @@ rest/friday-api/render
 /rest
 rest/
 rest
+docker-compose.yml

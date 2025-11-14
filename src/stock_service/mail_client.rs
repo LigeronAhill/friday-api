@@ -1,6 +1,6 @@
 use chrono::TimeZone;
 use mail_parser::MimeHeaders;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::Result;
 
@@ -52,6 +52,7 @@ impl MailClient {
         Ok(session)
     }
     pub fn fetch(&mut self) -> Result<FetchMap> {
+        info!("Получаю почту");
         let mut supmap = std::collections::HashMap::new();
         supmap.insert("vvolodin@opuscontract.ru", "opus");
         supmap.insert("sales@bratec-lis.com", "fox");
@@ -76,6 +77,7 @@ impl MailClient {
         }
         let q = format!("{first_uid}:{last_uid}", first_uid = self.last_fetched_uid);
         let fetches = session.uid_fetch(q, QUERY)?;
+        info!("Получено {len} писем", len = fetches.len());
         self.last_fetched_uid = last_uid;
         let mut m = std::collections::HashMap::new();
         for fetch in fetches.iter() {

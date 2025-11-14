@@ -49,13 +49,6 @@ impl Service {
             rust_woocommerce::ApiClient::init(safira_host, safira_ck, safira_cs)
                 .expect("safira_woo_client init error"),
         );
-        let lc_ck = self.secrets.get("LC_CK").expect("LC_CK not set");
-        let lc_cs = self.secrets.get("LC_CS").expect("LC_CS not set");
-        let lc_host = self.secrets.get("LC_HOST").expect("LC_HOST not set");
-        let lc_client = Arc::new(
-            rust_woocommerce::ApiClient::init(lc_host, lc_ck, lc_cs)
-                .expect("lc_woo_client init error"),
-        );
         let currency_storage = Arc::new(
             CurrencyStorage::new(self.pool.clone())
                 .await
@@ -68,7 +61,6 @@ impl Service {
         let syncer = synchronizer::Synchronizer::new(
             ms_client.clone(),
             safira_client.clone(),
-            lc_client.clone(),
             stock_storage.clone(),
         );
         tokio::spawn(syncer.run());

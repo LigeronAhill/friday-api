@@ -3,6 +3,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use chrono::Days;
 use rust_moysklad as ms;
 use rust_woocommerce as woo;
 use serde::Serialize;
@@ -180,6 +181,19 @@ pub fn convert_to_update(
     woo_data: &WooData,
     stock: &[Stock],
 ) -> Option<impl Serialize + Clone + Send + Sync + 'static> {
+    if let Some(last_upd) = ms_product.updated {
+        let now = chrono::Local::now().naive_local();
+        if let Some(yesterday) = now.checked_sub_days(Days::new(1)) {
+            if last_upd.le(&yesterday) {
+                return None;
+            }
+        }
+        let last_woo_upd = woo_product.date_modified;
+        if last_upd.lt(&last_woo_upd) {
+            return None;
+        }
+    }
+
     let ms_regular_price = get_ms_product_price(ms_product, PriceTag::Regular, ms_data)?;
     let ms_sale_price = get_ms_product_price(ms_product, PriceTag::Sale, ms_data)?;
     let ms_product_type = ProductType::from(ms_product);

@@ -6,13 +6,12 @@ use tracing::info;
 use crate::{
     models::Stock,
     storage::StockStorage,
-    utils::{convert_to_create, convert_to_update, get_quantity, pause, MsData, WooData},
+    utils::{convert_to_create, convert_to_update, get_quantity, MsData, WooData},
 };
-use chrono::{Datelike, TimeZone};
 use rust_moysklad as ms;
 use rust_woocommerce as woo;
+use tokio::sync::oneshot;
 use tokio::sync::oneshot::Sender;
-use tokio::sync::{mpsc, oneshot};
 const STOCK_ATTRIBUTE_NAME: &str = "Наличие";
 const IN_STOCK: &str = "В наличии (2-3 раб. дня)";
 const OUT_OF_STOCK: &str = "Под заказ (5-8 недель)";
@@ -35,7 +34,6 @@ impl Synchronizer {
         })
     }
     async fn sync(self: Arc<Self>) -> Result<()> {
-        info!("Начинаю синхронизацию!");
         let mut stock = Vec::new();
         let limit = 500;
         let mut offset = 0;
@@ -54,9 +52,8 @@ impl Synchronizer {
             }
         }
         info!("Получаю данные из Мой Склад");
-        let (ms_data, safira_data) =
-            tokio::join!(self.clone().get_ms_data(), self.clone().get_woo_data(),);
-        let ms_data = ms_data?;
+        let ms_data = self.clone().get_ms_data().await?;
+        let safira_data = self.clone().get_woo_data().await?;
         let products = ms_data.products.values().cloned().collect::<Vec<_>>();
         info!(
             "Получено {len} продуктов из Мой Склад для обновления",
@@ -64,90 +61,63 @@ impl Synchronizer {
         );
         self.clone().update_ms_stock(&stock, &products).await?;
         info!("Получаю данные от safira.club");
-        let safira_data = safira_data?;
         info!(
             "Получено {len} продуктов из Сафира для обновления",
             len = safira_data.products.len()
         );
         info!("Данные от safira.club получены успешно");
-        let (result_sender, mut result_receiver) = mpsc::unbounded_channel();
         info!("Синхронизирую safira.club");
         let mut products_to_create = Vec::new();
         let mut products_to_update = Vec::new();
         let mut products_to_delete = Vec::new();
-        let (create_tx, mut create_rx) = mpsc::unbounded_channel();
-        let (update_tx, mut update_rx) = mpsc::unbounded_channel();
-        let (delete_tx, mut delete_rx) = mpsc::unbounded_channel();
-        let ms_data = ms_data.clone();
         let current_stock = stock.clone();
-        tokio::spawn(async move {
-            for (ms_article, ms_product) in ms_data.products.clone() {
-                if let Some(woo_product) = safira_data.products.get(&ms_article) {
-                    // update woo product
-                    if let Some(converted) = convert_to_update(
-                        &ms_product,
-                        woo_product,
-                        &ms_data,
-                        &safira_data,
-                        &current_stock,
-                    ) {
-                        // products_to_update.push(converted)
-                        if let Err(e) = update_tx.send(converted) {
-                            tracing::error!("Ошибка отправки в канал {ms_article} {e:?}");
-                        }
-                    }
-                } else {
-                    // create woo product
-                    if let Some(converted) =
-                        convert_to_create(&ms_product, &ms_data, &safira_data, &current_stock)
-                    {
-                        // products_to_create.push(converted)
-                        if let Err(e) = create_tx.send(converted) {
-                            tracing::error!("Ошибка отправки в канал {ms_article} {e:?}");
-                        }
-                    }
+        for (ms_article, ms_product) in ms_data.products.clone() {
+            if let Some(woo_product) = safira_data.products.get(&ms_article) {
+                // update woo product
+                if let Some(converted) = convert_to_update(
+                    &ms_product,
+                    woo_product,
+                    &ms_data,
+                    &safira_data,
+                    &current_stock,
+                ) {
+                    products_to_update.push(converted)
                 }
-            }
-            for (sku, product) in safira_data.products.iter() {
-                if !ms_data.products.contains_key(sku)
-                    || ms_data
-                        .products
-                        .get(sku.as_str())
-                        .as_ref()
-                        .is_some_and(|p| p.archived.as_ref().is_some_and(|a| *a))
+            } else {
+                // create woo product
+                if let Some(converted) =
+                    convert_to_create(&ms_product, &ms_data, &safira_data, &current_stock)
                 {
-                    // delete woo product
-                    if let Err(e) = delete_tx.send(product.id) {
-                        tracing::error!("Ошибка отправки в канал {sku} {e:?}");
-                    }
+                    products_to_create.push(converted)
                 }
             }
-        });
+        }
+        for (sku, product) in safira_data.products.iter() {
+            if !ms_data.products.contains_key(sku)
+                || ms_data
+                    .products
+                    .get(sku.as_str())
+                    .as_ref()
+                    .is_some_and(|p| p.archived.as_ref().is_some_and(|a| *a))
+            {
+                // delete woo product
+                products_to_delete.push(product.id);
+            }
+        }
 
-        while let Some(create) = create_rx.recv().await {
-            products_to_create.push(create)
-        }
-        while let Some(update) = update_rx.recv().await {
-            products_to_update.push(update)
-        }
-        while let Some(delete) = delete_rx.recv().await {
-            products_to_delete.push(delete)
-        }
+        let mut count = 0;
+
         if !products_to_create.is_empty() {
             info!(
                 "Получено {} позиций для создания в safira.club",
                 products_to_create.len()
             );
-            let sender = result_sender.clone();
-            let woo_client = self.safira_client.clone();
-            tokio::spawn(async move {
-                let result = woo_client
-                    .batch_create::<woo::Product, _>(products_to_create)
-                    .await;
-                if let Err(e) = sender.send(result) {
-                    tracing::error!("Ошибка отправки в канал {e:?}");
-                }
-            });
+            let result = self
+                .safira_client
+                .batch_create::<woo::Product, _>(products_to_create)
+                .await?;
+            info!("Создано {len} позиций в safira.club", len = result.len());
+            count += result.len();
         } else {
             info!("Нет позиций для создания в safira.club");
         }
@@ -156,14 +126,10 @@ impl Synchronizer {
                 "Получено {} позиций для обновления в safira.club",
                 products_to_update.len()
             );
-            let sender = result_sender.clone();
-            let woo_client = self.safira_client.clone();
-            tokio::spawn(async move {
-                let result = woo_client.batch_update(products_to_update).await;
-                if let Err(e) = sender.send(result) {
-                    tracing::error!("Ошибка отправки в канал {e:?}");
-                }
-            });
+            let result: Vec<woo::Product> =
+                self.safira_client.batch_update(products_to_update).await?;
+            info!("Обновлено {len} позиций в safira.club", len = result.len());
+            count += result.len();
         } else {
             info!("Нет позиций для обновления в safira.club");
         }
@@ -172,27 +138,14 @@ impl Synchronizer {
                 "Получено {} позиций для удаления в safira.club",
                 products_to_delete.len()
             );
-            let sender = result_sender.clone();
-            let woo_client = self.safira_client.clone();
-            tokio::spawn(async move {
-                let result = woo_client
-                    .batch_delete::<woo::Product>(products_to_delete)
-                    .await;
-                if let Err(e) = sender.send(result) {
-                    tracing::error!("Ошибка отправки в канал {e:?}");
-                }
-            });
+            let result = self
+                .safira_client
+                .batch_delete::<woo::Product>(products_to_delete)
+                .await?;
+            info!("Удалено {len} позиций в safira.club", len = result.len());
+            count += result.len();
         } else {
             info!("Нет позиций для удаления в safira.club");
-        }
-        drop(result_sender);
-        let mut count = 0;
-        while let Some(result) = result_receiver.recv().await {
-            if let Err(e) = result {
-                tracing::error!("{e:?}");
-            } else {
-                count += result.unwrap().len();
-            }
         }
         info!("Всего позиций синхронизировано: {count}");
 
@@ -283,14 +236,9 @@ impl Synchronizer {
         Ok(result)
     }
     async fn get_woo_data(self: Arc<Self>) -> Result<WooData> {
-        let (products, attributes, categories) = tokio::join!(
-            self.clone().woo_products(),
-            self.clone().woo_attributes(),
-            self.clone().woo_categories(),
-        );
-        let products_vec = products?;
-        let attributes_vec = attributes?;
-        let categories_vec = categories?;
+        let products_vec = self.clone().woo_products().await?;
+        let attributes_vec = self.clone().woo_attributes().await?;
+        let categories_vec = self.clone().woo_categories().await?;
         let mut products = HashMap::new();
         for product in products_vec {
             products.insert(product.sku.to_uppercase(), product);
@@ -346,29 +294,29 @@ impl Synchronizer {
             tracing::error!("Ошибка синхронизации: --> {e:?}");
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
-        let now = chrono::Utc::now();
-        tracing::info!("Сейчас {current}", current = now.to_rfc3339());
-        let tomorrow = now.checked_add_days(chrono::Days::new(1)).unwrap();
-        let midnight = chrono::Utc
-            .with_ymd_and_hms(tomorrow.year(), tomorrow.month(), tomorrow.day(), 0, 0, 0)
-            .unwrap();
-        tracing::info!("Ближайшая полночь: {m}", m = midnight.to_rfc3339());
-        let delta = midnight - now;
-        tracing::info!("Дельта: {delta:?}");
-        let duration = delta.num_seconds();
-        let h = duration / 60 / 60;
-        let m = duration / 60 % 60;
-        let s = duration % 60;
-        tracing::info!("Буду ждать {h} часов {m} минут {s} секунд");
-        tokio::time::sleep(tokio::time::Duration::from_secs(duration as u64)).await;
+        // let now = chrono::Utc::now();
+        // tracing::info!("Сейчас {current}", current = now.to_rfc3339());
+        // let tomorrow = now.checked_add_days(chrono::Days::new(1)).unwrap();
+        // let midnight = chrono::Utc
+        //     .with_ymd_and_hms(tomorrow.year(), tomorrow.month(), tomorrow.day(), 0, 0, 0)
+        //     .unwrap();
+        // tracing::info!("Ближайшая полночь: {m}", m = midnight.to_rfc3339());
+        // let delta = midnight - now;
+        // tracing::info!("Дельта: {delta:?}");
+        // let duration = delta.num_seconds();
+        // let h = duration / 60 / 60;
+        // let m = duration / 60 % 60;
+        // let s = duration % 60;
+        // tracing::info!("Буду ждать {h} часов {m} минут {s} секунд");
+        // tokio::time::sleep(tokio::time::Duration::from_secs(duration as u64)).await;
         loop {
             tracing::info!("Начинаю синхронизацию");
             if let Err(e) = self.clone().sync().await {
                 tracing::error!("{e:?}");
-                pause(1).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             } else {
-                tracing::info!("Сайты синхронизированы");
-                pause(24).await;
+                tracing::info!("Сайт синхронизирован");
+                tokio::time::sleep(tokio::time::Duration::from_secs(12 * 60 * 60)).await;
             }
         }
     }

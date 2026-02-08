@@ -1,0 +1,37 @@
+services:
+  server:
+    environment:
+      - ORTGRAPH_USERNAME=info@floorstudio.ru
+      - ORTGRAPH_PASSWORD=4lp3B7
+      - MAIL_HOST=mail.safira.club
+      - MAIL_USER=mail@safira.club
+      - MAIL_PASS=80ORbD4s7Sj5ukUV
+      - MS_TOKEN=6c5060f77e856df689f4d52419a607a3ac4f2e42
+      - SAFIRA_CK=ck_9584ef901debf952fbfd8a2f43c5f94901613a89
+      - SAFIRA_CS=cs_a3d2902f8b5f819e8473309df7c041ea1f16fc0e
+      - SAFIRA_HOST=https://safira.club
+      - WINSTON_TOKEN=6541293177:AAE4B6ZRD96g3tFvPI1GsiDhMsbIyglmNfs
+      - DATABASE_URL=postgres://postgres:postgres@database:5432/friday_api
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      database:
+        condition: service_healthy
+  database:
+    image: postgres:latest
+    restart: always
+    user: postgres
+    volumes:
+      - db-data:/var/lib/postgresql
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=friday_api
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  db-data:

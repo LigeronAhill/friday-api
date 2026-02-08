@@ -45,23 +45,4 @@ impl StockStorage {
             .await?;
         Ok(results)
     }
-    pub async fn find(&self, search_string: String) -> Result<Vec<Stock>> {
-        let mut re = String::from("[А-я\\s]*.*");
-        let slice = search_string.split_whitespace().collect::<Vec<_>>();
-        let l = slice.len();
-        for (i, w) in slice.into_iter().enumerate() {
-            re.push_str(w);
-            if l > 2 && i == l - 1 {
-                re.push_str("?[\\s|,|m|M|м|М]*.*");
-            } else {
-                re.push_str("[\\s|,|-]*.*");
-            }
-        }
-        let query = "SELECT * FROM stock WHERE name ~* $1 LIMIT 100";
-        let results = sqlx::query_as::<_, Stock>(query)
-            .bind(re)
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(results)
-    }
 }

@@ -316,7 +316,7 @@ impl Synchronizer {
                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             } else {
                 tracing::info!("Сайт синхронизирован");
-                tokio::time::sleep(tokio::time::Duration::from_secs(12 * 60 * 60)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
             }
         }
     }

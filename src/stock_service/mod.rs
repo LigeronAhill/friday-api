@@ -23,23 +23,18 @@ pub struct Stocker {
 }
 impl Stocker {
     pub fn new(
-        secrets: shuttle_runtime::SecretStore,
+        // secrets: shuttle_runtime::SecretStore,
         stock_storage: Arc<StockStorage>,
     ) -> Arc<Self> {
-        let ort_user = secrets
-            .get("ORTGRAPH_USERNAME")
+        let ort_user = std::env::var("ORTGRAPH_USERNAME")
             .expect("не нашла ORTGRAPH_USER в Secrets.toml");
-        let ort_pass = secrets
-            .get("ORTGRAPH_PASSWORD")
+        let ort_pass = std::env::var("ORTGRAPH_PASSWORD")
             .expect("не нашла ORTGRAPH_PASSWORD в Secrets.toml");
-        let mail_host = secrets
-            .get("MAIL_HOST")
+        let mail_host = std::env::var("MAIL_HOST")
             .expect("не нашла MAIL_HOST в Secrets.toml");
-        let mail_user = secrets
-            .get("MAIL_USER")
+        let mail_user = std::env::var("MAIL_USER")
             .expect("не нашла MAIL_USER в Secrets.toml");
-        let mail_pass = secrets
-            .get("MAIL_PASS")
+        let mail_pass = std::env::var("MAIL_PASS")
             .expect("не нашла MAIL_PASS в Secrets.toml");
         let mail_client = Arc::new(
             MailClient::new(mail_user, mail_pass, mail_host).expect("Error init mail_client"),

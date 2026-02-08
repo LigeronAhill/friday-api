@@ -12,3 +12,6 @@ rest/friday-api/render
 rest/
 rest
 docker-compose.yml
+Dockerfile.bak
+compose.yaml.bak
+README.Docker.md

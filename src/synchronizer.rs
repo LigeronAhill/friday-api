@@ -10,8 +10,6 @@ use crate::{
 };
 use rust_moysklad as ms;
 use rust_woocommerce as woo;
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::Sender;
 const STOCK_ATTRIBUTE_NAME: &str = "Наличие";
 const IN_STOCK: &str = "В наличии (2-3 раб. дня)";
 const OUT_OF_STOCK: &str = "Под заказ (5-8 недель)";
@@ -209,18 +207,10 @@ impl Synchronizer {
         Ok(())
     }
     async fn get_ms_data(self: Arc<Self>) -> Result<MsData> {
-        let (currencies_sender, currencies_receiver) = oneshot::channel();
-        let (countries_sender, countries_receiver) = oneshot::channel();
-        let (uoms_sender, uoms_receiver) = oneshot::channel();
-        let (products_sender, products_receiver) = oneshot::channel();
-        tokio::spawn(self.clone().ms_currencies(currencies_sender));
-        tokio::spawn(self.clone().ms_countries(countries_sender));
-        tokio::spawn(self.clone().ms_uoms(uoms_sender));
-        tokio::spawn(self.clone().ms_products(products_sender));
-        let currencies = currencies_receiver.await?;
-        let countries = countries_receiver.await?;
-        let uoms = uoms_receiver.await?;
-        let products_vec = products_receiver.await?;
+        let currencies = self.ms_currencies().await?;
+        let countries = self.ms_countries().await?;
+        let uoms = self.ms_uoms().await?;
+        let products_vec = self.ms_products().await?;
         let mut products = HashMap::new();
         for product in products_vec {
             if let Some(sku) = product.article.clone() {
@@ -269,46 +259,33 @@ impl Synchronizer {
         let result = self.safira_client.list_all().await?;
         Ok(result)
     }
-    async fn ms_currencies(self: Arc<Self>, tx: Sender<Vec<ms::Currency>>) -> Result<()> {
+    async fn ms_currencies(&self) -> Result<Vec<ms::Currency>> {
         let result = self.ms_client.get_all::<ms::Currency>().await?;
-        tx.send(result).unwrap();
-        Ok(())
+        Ok(result)
     }
-    async fn ms_countries(self: Arc<Self>, tx: Sender<Vec<ms::Country>>) -> Result<()> {
+    async fn ms_countries(&self) -> Result<Vec<ms::Country>> {
         let result = self.ms_client.get_all::<ms::Country>().await?;
-        tx.send(result).unwrap();
-        Ok(())
+        Ok(result)
     }
-    async fn ms_uoms(self: Arc<Self>, tx: Sender<Vec<ms::Uom>>) -> Result<()> {
+    async fn ms_uoms(&self) -> Result<Vec<ms::Uom>> {
         let result = self.ms_client.get_all::<ms::Uom>().await?;
-        tx.send(result).unwrap();
-        Ok(())
+        Ok(result)
     }
-    async fn ms_products(self: Arc<Self>, tx: Sender<Vec<ms::Product>>) -> Result<()> {
+    async fn ms_products(&self) -> Result<Vec<ms::Product>> {
         let result = self.ms_client.get_all::<ms::Product>().await?;
-        tx.send(result).unwrap();
-        Ok(())
+        Ok(result)
     }
+    // async fn updated_ms_products(&self, last_update: chrono::NaiveDateTime) -> Result<Vec<ms::Product>> {
+    //     let lu = last_update.to_string();
+    //     let fo = ms::FilterOperator::GreaterThan;
+    //     let result = self.ms_client.filter::<ms::Product>("updated", fo, lu).await?;
+    //     Ok(result)
+    // }
     pub async fn run(self: Arc<Self>) {
         while let Err(e) = self.clone().sync().await {
             tracing::error!("Ошибка синхронизации: --> {e:?}");
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
-        // let now = chrono::Utc::now();
-        // tracing::info!("Сейчас {current}", current = now.to_rfc3339());
-        // let tomorrow = now.checked_add_days(chrono::Days::new(1)).unwrap();
-        // let midnight = chrono::Utc
-        //     .with_ymd_and_hms(tomorrow.year(), tomorrow.month(), tomorrow.day(), 0, 0, 0)
-        //     .unwrap();
-        // tracing::info!("Ближайшая полночь: {m}", m = midnight.to_rfc3339());
-        // let delta = midnight - now;
-        // tracing::info!("Дельта: {delta:?}");
-        // let duration = delta.num_seconds();
-        // let h = duration / 60 / 60;
-        // let m = duration / 60 % 60;
-        // let s = duration % 60;
-        // tracing::info!("Буду ждать {h} часов {m} минут {s} секунд");
-        // tokio::time::sleep(tokio::time::Duration::from_secs(duration as u64)).await;
         loop {
             tracing::info!("Начинаю синхронизацию");
             if let Err(e) = self.clone().sync().await {
@@ -316,7 +293,7 @@ impl Synchronizer {
                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             } else {
                 tracing::info!("Сайт синхронизирован");
-                tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(6 * 60 * 60)).await;
             }
         }
     }

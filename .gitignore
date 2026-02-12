@@ -15,3 +15,4 @@ docker-compose.yml
 Dockerfile.bak
 compose.yaml.bak
 README.Docker.md
+/.DS_Store

@@ -9,10 +9,10 @@ mod storage;
 mod synchronizer;
 pub mod utils;
 
-pub struct LocalService {
+pub struct Service {
     pool: sqlx::PgPool,
 }
-impl LocalService {
+impl Service {
     pub fn new(pool: sqlx::PgPool) -> Self {
         Self { pool }
     }
@@ -47,8 +47,6 @@ impl LocalService {
         );
         tokio::spawn(syncer.run());
         let stocker = stock_service::Stocker::new(stock_storage.clone());
-        if let Err(e) = stocker.run().await {
-            tracing::error!("{e:?}")
-        }
+        stocker.run().await;
     }
 }

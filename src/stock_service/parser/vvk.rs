@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use calamine::{open_workbook_auto_from_rs, Data, Range, Reader};
+use calamine::{Data, Ods, Range, Reader, open_workbook_auto_from_rs, open_workbook_from_rs};
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
@@ -14,7 +14,7 @@ pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> 
     tokio::spawn(async move {
         for file in files {
             let cursor = Cursor::new(file);
-            match open_workbook_auto_from_rs(cursor) {
+            match open_workbook_auto_from_rs(cursor.clone()) {
                 Ok(mut wb) => {
                     let sheets = wb.worksheets();
                     for (_, table) in sheets {
@@ -24,7 +24,19 @@ pub async fn parser(files: Vec<Vec<u8>>, received: DateTime<Utc>) -> Vec<Stock> 
                 }
                 Err(e) => {
                     error!("Ошибка при открытии книги из сети от 'ВВК': {e:?}");
-                    continue;
+                    match open_workbook_from_rs::<Ods<_>, _>(cursor) {
+                        Ok(mut odsbook) => {
+                            let sheets = odsbook.worksheets();
+                            for (_, table) in sheets {
+                                let tx = tx.clone();
+                                tokio::spawn(parse(table, received, tx));
+                            }
+                        }
+                        Err(e) => {
+                            error!("Not a ods... {e:?}");
+                            continue;
+                        }
+                    }
                 }
             }
         }

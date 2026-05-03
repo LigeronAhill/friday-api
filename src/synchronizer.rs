@@ -6,7 +6,7 @@ use tracing::info;
 use crate::{
     models::Stock,
     storage::StockStorage,
-    utils::{convert_to_create, convert_to_update, get_quantity, MsData, WooData},
+    utils::{MsData, WooData, convert_to_create, convert_to_update, get_quantity, search_quantity},
 };
 use rust_moysklad as ms;
 use rust_woocommerce as woo;
@@ -171,7 +171,13 @@ impl Synchronizer {
                     rust_moysklad::AttributeValue::Custom(v) => v.name,
                     _ => String::new(),
                 };
-                let is_in_stock = get_quantity(&ms_sku, stock) > 2.0;
+                let q = get_quantity(&ms_sku, stock);
+                let quantity = if q == 0. {
+                    search_quantity(ms_product, stock).unwrap_or_default()
+                } else {
+                    q
+                };
+                let is_in_stock = quantity > 2.0;
                 if !is_in_stock && value != OUT_OF_STOCK {
                     let upd = rust_moysklad::Product::update()
                         .meta(meta)
@@ -275,25 +281,20 @@ impl Synchronizer {
         let result = self.ms_client.get_all::<ms::Product>().await?;
         Ok(result)
     }
-    // async fn updated_ms_products(&self, last_update: chrono::NaiveDateTime) -> Result<Vec<ms::Product>> {
-    //     let lu = last_update.to_string();
-    //     let fo = ms::FilterOperator::GreaterThan;
-    //     let result = self.ms_client.filter::<ms::Product>("updated", fo, lu).await?;
-    //     Ok(result)
-    // }
     pub async fn run(self: Arc<Self>) {
-        while let Err(e) = self.clone().sync().await {
-            tracing::error!("Ошибка синхронизации: --> {e:?}");
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        }
         loop {
             tracing::info!("Начинаю синхронизацию");
             if let Err(e) = self.clone().sync().await {
-                tracing::error!("{e:?}");
+                tracing::error!("{e:?}\nretry in 1 min");
                 tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             } else {
-                tracing::info!("Сайт синхронизирован");
-                tokio::time::sleep(tokio::time::Duration::from_secs(6 * 60 * 60)).await;
+                let now = chrono::Utc::now();
+                let next = now
+                    .checked_add_signed(chrono::TimeDelta::minutes(5))
+                    .unwrap()
+                    .to_rfc3339();
+                tracing::info!("Сайт синхронизирован, следующий сеанс: {next}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5 * 60)).await;
             }
         }
     }

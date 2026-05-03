@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use calamine::{open_workbook_auto_from_rs, Data, DataType, Range, Reader};
+use calamine::{Data, DataType, Range, Reader, open_workbook_auto_from_rs};
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;

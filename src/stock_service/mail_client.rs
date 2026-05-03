@@ -8,6 +8,7 @@ use super::FetchMap;
 const QUERY: &str = "RFC822";
 const UID_QUERY: &str = "UID";
 const INBOX: &str = "INBOX";
+// const ARCHIVE: &str = "Archive";
 
 #[derive(Clone)]
 pub struct MailClient {
@@ -27,7 +28,8 @@ impl MailClient {
         let mut session = mail_client.session()?;
         session.select(INBOX)?;
         let msg_count = session.search("ALL")?.len();
-        let range = format!("{count}", count = msg_count - 200);
+        let offset = if msg_count < 200 { msg_count - 1 } else { 200 };
+        let range = format!("{count}", count = msg_count - offset);
         let first_uid = session
             .fetch(range, UID_QUERY)?
             .iter()
@@ -48,7 +50,9 @@ impl MailClient {
             .danger_skip_tls_verify(true)
             .connect()?;
         let mut session = client.login(&self.user, &self.pass).map_err(|e| e.0)?;
+        info!("Session created");
         session.select(INBOX)?;
+        info!("Inbox folder selected");
         Ok(session)
     }
     pub fn fetch(&mut self) -> Result<FetchMap> {
@@ -61,8 +65,10 @@ impl MailClient {
         supmap.insert("dealer@kover-zefir.ru", "zefir");
         supmap.insert("almaz2008@yandex.ru", "fenix");
         let mut session = self.session()?;
+        info!("session created");
         let msg_count = session.search("ALL")?.len();
         let last_uid_q = format!("{msg_count}");
+        info!("last uid query: {last_uid_q}");
         let last_uid = session
             .fetch(last_uid_q, UID_QUERY)?
             .iter()
@@ -73,10 +79,15 @@ impl MailClient {
                 "Ошибка при получении последнего UID".into(),
             ))?;
         if self.last_fetched_uid == last_uid {
+            info!("Нет новых писем");
             return Ok(std::collections::HashMap::new());
         }
         let q = format!("{first_uid}:{last_uid}", first_uid = self.last_fetched_uid);
-        let fetches = session.uid_fetch(q, QUERY)?;
+        info!("new query: {q}");
+        let fetches = session.uid_fetch(q, QUERY).map_err(|e| {
+            error!("{e:?}");
+            e
+        })?;
         info!("Получено {len} писем", len = fetches.len());
         self.last_fetched_uid = last_uid;
         let mut m = std::collections::HashMap::new();
@@ -147,6 +158,7 @@ impl MailClient {
                 }
             }
         }
+        info!("Stock map from mail length: {l}", l = m.len());
         session.logout()?;
         Ok(m)
     }

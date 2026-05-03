@@ -1,15 +1,16 @@
 use std::io::Cursor;
 
-use calamine::{open_workbook_auto_from_rs, Data, Range, Reader};
+use calamine::{Data, Range, Reader, open_workbook_auto_from_rs};
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::models::Stock;
 
 use super::clear_string;
 
 pub async fn parser(file: Vec<u8>, received: DateTime<Utc>) -> Vec<Stock> {
+    info!("SF received file size: {s} bytes", s = file.len());
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         let cursor = Cursor::new(file);
@@ -22,7 +23,7 @@ pub async fn parser(file: Vec<u8>, received: DateTime<Utc>) -> Vec<Stock> {
                 }
             }
             Err(e) => {
-                error!("Ошибка при чтении книги из вложений 'Интерьерные решения': {e:?}");
+                error!("Ошибка при чтении книги из вложений 'SF': {e:?}");
             }
         }
     });
@@ -35,7 +36,7 @@ pub async fn parser(file: Vec<u8>, received: DateTime<Utc>) -> Vec<Stock> {
 
 async fn parse(table: Range<Data>, received: DateTime<Utc>, tx: UnboundedSender<Stock>) {
     for row in table.rows() {
-        if let Some(stock) = row.get(8).and_then(|d| {
+        if let Some(stock) = row.get(6).and_then(|d| {
             d.to_string()
                 .replace(" шт.", "")
                 .replace(" уп.", "")

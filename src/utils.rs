@@ -3,7 +3,6 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use chrono::Days;
 use rust_moysklad as ms;
 use rust_woocommerce as woo;
 use serde::Serialize;
@@ -21,7 +20,12 @@ pub fn convert_to_create(
     stock: &[Stock],
 ) -> Option<impl Serialize + Clone + Send + Sync + 'static> {
     let sku = ms_product.article.as_ref()?.to_uppercase();
-    let quantity = get_quantity(&sku, stock) as i32;
+    let sku_quantity = get_quantity(&sku, stock) as i32;
+    let quantity = if sku_quantity != 0 {
+        sku_quantity
+    } else {
+        search_quantity(ms_product, stock).unwrap_or_default() as i32
+    };
     let country = ms_data
         .countries
         .iter()
@@ -52,6 +56,10 @@ pub fn convert_to_create(
             .contains("цена указана за одну упаковку")
         {
             desc = format!("Цена указана за одну упаковку. {desc}")
+        }
+    } else if ms_product_type == ProductType::Walls {
+        if !desc.to_lowercase().contains("цена указана за один рулон") {
+            desc = format!("<i>Цена указана за один рулон.</i>\n{desc}")
         }
     }
     let category_id = get_category_id(ms_product_type.clone(), woo_data)?;
@@ -181,21 +189,18 @@ pub fn convert_to_update(
     woo_data: &WooData,
     stock: &[Stock],
 ) -> Option<impl Serialize + Clone + Send + Sync + 'static> {
-    if let Some(last_upd) = ms_product.updated {
-        let now = chrono::Local::now().naive_local();
-        if let Some(yesterday) = now.checked_sub_days(Days::new(1)) {
-            if last_upd.le(&yesterday) {
-                return None;
-            }
-        }
-        let last_woo_upd = woo_product.date_modified;
-        if last_upd.lt(&last_woo_upd) {
-            return None;
-        }
-    }
-
+    let ms_updated = ms_product.updated?;
+    let woo_updated = woo_product.date_modified;
     let ms_regular_price = get_ms_product_price(ms_product, PriceTag::Regular, ms_data)?;
     let ms_sale_price = get_ms_product_price(ms_product, PriceTag::Sale, ms_data)?;
+    let woo_regular_price = woo_product.regular_price.parse::<f64>().unwrap_or_default();
+    let woo_sale_price = woo_product.sale_price.parse::<f64>().unwrap_or_default();
+    if woo_regular_price == ms_regular_price
+        && woo_sale_price == ms_sale_price
+        && ms_updated.le(&woo_updated)
+    {
+        return None;
+    }
     let ms_product_type = ProductType::from(ms_product);
     if ms_product_type == ProductType::Other {
         return None;
@@ -230,6 +235,10 @@ pub fn convert_to_update(
         {
             desc = format!("Цена указана за одну упаковку. {desc}")
         }
+    } else if ms_product_type == ProductType::Walls {
+        if !desc.to_lowercase().contains("цена указана за один рулон") {
+            desc = format!("<i>Цена указана за один рулон.</i>\n{desc}")
+        }
     }
     let weight = match ms_product.weight {
         Some(w) => format!("{w:.2}"),
@@ -251,7 +260,12 @@ pub fn convert_to_update(
             (woo::ProductStatus::Publish, woo::CatalogVisibility::Visible)
         };
     let sku = woo_product.sku.clone();
-    let quantity = get_quantity(&sku, stock) as i32;
+    let sku_quantity = get_quantity(&sku, stock) as i32;
+    let quantity = if sku_quantity != 0 {
+        sku_quantity
+    } else {
+        search_quantity(ms_product, stock).unwrap_or_default() as i32
+    };
     result
         .id(woo_product.id)
         .sku(&woo_product.sku)
@@ -288,6 +302,7 @@ pub fn convert_to_update(
     } else {
         result.sale_price(String::new());
     }
+    let mut rw = 130.;
     for ms_att in ms_attributes.clone() {
         let name = ms_att.name.clone();
         let option = match ms_att.value {
@@ -304,6 +319,7 @@ pub fn convert_to_update(
                 .parse::<f64>()
                 .map(|d| d * 100.0)
                 .unwrap_or(1.0);
+            rw = w;
             if w != 1.0 {
                 min_quantity = w / 100.0 * 2.0;
                 quantity_step = 0.1;
@@ -357,11 +373,19 @@ pub fn convert_to_update(
     let length = format!("{length:.2}");
     let width = format!("{width:.2}");
     let height = format!("{height:.2}");
-    result
-        .dimensions(width, length, height)
-        .meta_data("_woo_uom_input", format!("/{uom}"))
-        .meta_data("_alg_wc_pq_min", format!("{min_quantity:.2}"))
-        .meta_data("_alg_wc_pq_step", format!("{quantity_step:.2}"));
+    if ms_product_type == ProductType::Walls {
+        result
+            .dimensions("10.00", format!("{rw:.2}"), "10.00")
+            .meta_data("_woo_uom_input", format!("/рулон"))
+            .meta_data("_alg_wc_pq_min", format!("1"))
+            .meta_data("_alg_wc_pq_step", format!("1"));
+    } else {
+        result
+            .dimensions(width, length, height)
+            .meta_data("_woo_uom_input", format!("/{uom}"))
+            .meta_data("_alg_wc_pq_min", format!("{min_quantity:.2}"))
+            .meta_data("_alg_wc_pq_step", format!("{quantity_step:.2}"));
+    }
     let result = result.build();
     Some(result)
 }
@@ -386,6 +410,7 @@ enum ProductType {
     CarpetTile,
     Rug,
     Mat,
+    Walls,
     Other,
 }
 impl From<&ms::Product> for ProductType {
@@ -406,6 +431,7 @@ impl From<&ms::Product> for ProductType {
             "Ковровая плитка" => Self::CarpetTile,
             "Ковры" => Self::Rug,
             "Циновки" => Self::Mat,
+            "Настенные покрытия" => Self::Walls,
             _ => Self::Other,
         }
     }
@@ -417,6 +443,7 @@ impl Display for ProductType {
             ProductType::CarpetTile => "Ковровая плитка",
             ProductType::Rug => "Ковры",
             ProductType::Mat => "Циновки",
+            ProductType::Walls => "Настенные покрытия",
             ProductType::Other => "Invalid",
         };
         write!(f, "{s}")
@@ -481,4 +508,52 @@ pub fn get_quantity(sku: &str, stock: &[Stock]) -> f64 {
             .collect::<Vec<_>>();
     }
     temp.iter().map(|s| s.stock).sum::<f64>()
+}
+pub fn search_quantity(product: &ms::Product, stock: &[Stock]) -> Option<f64> {
+    let sku = product.article.as_ref()?;
+    let sl = sku.split_whitespace().collect::<Vec<_>>();
+    let mut brand = "";
+    let mut result = 0.;
+    let attributes = product.attributes.as_ref()?;
+    for attribute in attributes {
+        if attribute.name == "Бренд" {
+            match &attribute.value {
+                rust_moysklad::AttributeValue::Custom(custom_value) => {
+                    brand = &custom_value.name;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if brand == "APOLUZA" {
+        let collection = if sku.to_lowercase().contains("blot") {
+            let n = sl.get(2)?;
+            format!("BLOT {n}")
+        } else if sku.to_lowercase().contains("magic") {
+            let n = sl.get(2)?;
+            format!("MAGIC {n}")
+        } else {
+            sl.get(1)?.to_string()
+        };
+        for s in stock {
+            let name = &s.name;
+            let supplier = &s.supplier;
+            if supplier == "sportflooring"
+                && name.to_lowercase().contains(&collection.to_lowercase())
+            {
+                result += s.stock;
+            }
+        }
+    } else if brand == "Vescom" {
+        let collection = sku.replace("Vescom ", "");
+        for s in stock {
+            let name = &s.name;
+            let supplier = &s.supplier;
+            if supplier == "ortgraph" && name.to_lowercase().contains(&collection.to_lowercase()) {
+                result += s.stock;
+            }
+        }
+    }
+    Some(result)
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
-use tracing::error;
+// use tracing::{error, info, warn};
 
 use crate::{AppError, Result};
 
@@ -83,29 +83,69 @@ impl Spider {
         Ok(files)
     }
     async fn vvk(&self) -> Result<Vec<Vec<u8>>> {
-        const BASE_URI: &str = "https://disk.yandex.ru/d/1qA555p_DbQiaQ";
-        let uri = "https://cloud-api.yandex.net:443/v1/disk/public/resources";
-        // let download_uri = "https://cloud-api.yandex.net:443/v1/disk/public/resources/download";
+        const PUBLIC_KEY: &str = "https://disk.yandex.ru/d/1qA555p_DbQiaQ";
+        const RESOURCES_URI: &str = "https://cloud-api.yandex.net:443/v1/disk/public/resources";
+        const DOWNLOAD_URI: &str =
+            "https://cloud-api.yandex.net:443/v1/disk/public/resources/download";
+
         let mut result = Vec::new();
+
+        // 1. Получаем список файлов
         let response = self
             .client
-            .get(uri)
-            .query(&[("public_key", BASE_URI)])
+            .get(RESOURCES_URI)
+            .query(&[("public_key", PUBLIC_KEY)])
             .send()
             .await?;
         let root: Root = response.json().await?;
-        for i in root.embedded.items {
-            // info!("Got vvk link: {}", i.file);
-            let file = self
+
+        for item in root.embedded.items {
+            // 2. Получаем мета-информацию о скачивании (JSON с href)
+            let download_meta = self
                 .client
-                .get(i.file)
+                .get(DOWNLOAD_URI)
+                .query(&[("public_key", PUBLIC_KEY), ("path", &item.path)])
                 .send()
-                .await?
-                .bytes()
-                .await?
-                .to_vec();
-            result.push(file)
+                .await?;
+
+            let status = download_meta.status();
+
+            if !status.is_success() {
+                let error_text = download_meta.text().await?;
+                return Err(AppError::Custom(format!("Ошибка API: {error_text}")));
+            }
+
+            // 3. Парсим JSON и получаем href для скачивания
+            let download_info: DownloadResponse = download_meta.json().await?;
+
+            // 4. Скачиваем файл по href с правильными заголовками
+            let file_response = self
+                .client
+                .get(&download_info.href)
+                .header("Accept", "application/octet-stream,*/*")
+                .send()
+                .await?;
+
+            let file_status = file_response.status();
+
+            if !file_status.is_success() {
+                let error_text = file_response.text().await?;
+                return Err(AppError::Custom(
+                    format!("Ошибка скачивания: {error_text}",),
+                ));
+            }
+
+            // 5. Читаем байты файла
+            let bytes = file_response.bytes().await?.to_vec();
+
+            // Проверяем сигнатуру ZIP
+            if bytes.len() > 4 && &bytes[0..4] == [0x50, 0x4B, 0x03, 0x04] {
+                result.push(bytes);
+            } else {
+                return Err(AppError::Custom(format!("Не ZIP файл")));
+            }
         }
+
         Ok(result)
     }
     async fn sf(&self) -> Result<(Vec<u8>, chrono::DateTime<chrono::Utc>)> {
@@ -118,39 +158,45 @@ impl Spider {
             r#""name":"Остатки\s+СФ\s+на\s+(?<date>[\d.]+)\s+Клиентские\s+Ковровые\s*.+xlsx","weblink":"(?<url>[A-zА-я/\s\d.]+)","#,
         ).unwrap();
         let today = Utc::now();
-        let result = (Vec::new(), today);
-        if let Some(wl_capture) = weblink_re.captures(&text) {
-            let weblink = wl_capture.name("url").unwrap().as_str();
-            if let Some(filename_capture) = filename_re.captures(&text) {
-                let filename = filename_capture.name("url").unwrap().as_str();
-                let date_str = filename_capture.name("date").unwrap().as_str();
-                let day = date_str
-                    .split('.')
-                    .collect::<Vec<_>>()
-                    .first()
-                    .and_then(|w| w.parse::<u32>().ok())
-                    .unwrap_or(today.day());
-                let month = date_str
-                    .split('.')
-                    .collect::<Vec<_>>()
-                    .get(1)
-                    .and_then(|w| w.parse::<u32>().ok())
-                    .unwrap_or(today.month());
-                let year = date_str
-                    .split('.')
-                    .collect::<Vec<_>>()
-                    .get(2)
-                    .and_then(|w| w.parse::<i32>().ok())
-                    .unwrap_or(today.year());
-                let date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap();
-                let uri = format!("{weblink}/{filename}");
-                let file = self.client.get(&uri).send().await?.bytes().await?.to_vec();
-                Ok((file, date))
-            } else {
-                Ok(result)
+        // let result = (Vec::new(), today);
+        match weblink_re.captures(&text) {
+            Some(wl_capture) => {
+                let weblink = wl_capture.name("url").unwrap().as_str();
+                match filename_re.captures(&text) {
+                    Some(filename_capture) => {
+                        let filename = filename_capture.name("url").unwrap().as_str();
+                        let date_str = filename_capture.name("date").unwrap().as_str();
+                        let day = date_str
+                            .split('.')
+                            .collect::<Vec<_>>()
+                            .first()
+                            .and_then(|w| w.parse::<u32>().ok())
+                            .unwrap_or(today.day());
+                        let month = date_str
+                            .split('.')
+                            .collect::<Vec<_>>()
+                            .get(1)
+                            .and_then(|w| w.parse::<u32>().ok())
+                            .unwrap_or(today.month());
+                        let year = date_str
+                            .split('.')
+                            .collect::<Vec<_>>()
+                            .get(2)
+                            .and_then(|w| w.parse::<i32>().ok())
+                            .unwrap_or(today.year());
+                        let date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap();
+                        let uri = format!("{weblink}/{filename}");
+                        let file = self.client.get(&uri).send().await?.bytes().await?.to_vec();
+                        Ok((file, date))
+                    }
+                    None => Err(AppError::Custom(
+                        "SPORTFLOORING! something with filename_capture!".into(),
+                    )),
+                }
             }
-        } else {
-            Ok(result)
+            None => Err(AppError::Custom(
+                "SPORTFLOORING! something with wl_capture!".into(),
+            )),
         }
     }
     pub async fn get_web(&self) -> Result<FetchMap> {
@@ -159,22 +205,22 @@ impl Spider {
         if let Ok(ort) = self.ortgraph().await {
             map.insert("ortgraph".to_owned(), (ort, now));
         } else {
-            error!("Ошибка получения ortgraph");
+            tracing::error!("Ошибка получения ortgraph");
         }
         match self.vvk().await {
             Ok(vvk) => {
                 map.insert("vvk".to_owned(), (vvk, now));
             }
-            Err(e) => error!("{e:?}"),
+            Err(e) => tracing::error!("Ошибка получения vvk\n{e:?}"),
         }
         if let Ok((sf, received)) = self.sf().await {
             if !sf.is_empty() {
                 map.insert("sportflooring".to_owned(), (vec![sf], received));
             } else {
-                error!("Ошибка получения sf");
+                tracing::error!("Ошибка получения sf");
             }
         } else {
-            error!("Ошибка получения sf");
+            tracing::error!("Ошибка получения sf");
         }
         Ok(map)
     }
@@ -194,13 +240,7 @@ fn get_links(body: String) -> Vec<String> {
             .unwrap()
             .as_utf8_str()
             .to_string();
-        let annotation = tag.inner_html(parser);
-        if l.contains(".xls")
-            && l.contains("upload")
-            && (annotation.to_lowercase().contains("ковр")
-                || annotation.to_lowercase().contains("напол"))
-        {
-            // info!("Got link for {annotation}: {l}");
+        if l.contains(".xls") && l.contains("upload") {
             result.push(l)
         }
     }
@@ -217,5 +257,13 @@ struct Embedded {
 }
 #[derive(Deserialize)]
 struct Item {
-    file: String,
+    // name: String,
+    path: String,
+    // file: String,
+}
+#[derive(Deserialize)]
+struct DownloadResponse {
+    href: String,
+    // method: String,
+    // templated: Option<bool>,
 }

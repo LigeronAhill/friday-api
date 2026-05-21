@@ -1,5 +1,6 @@
 services:
   server:
+    image: ligeronahill/friday_server:v0.1.1
     environment:
       - ORTGRAPH_USERNAME=${ORTGRAPH_USERNAME}
       - ORTGRAPH_PASSWORD=${ORTGRAPH_PASSWORD}
@@ -11,9 +12,6 @@ services:
       - SAFIRA_CS=${SAFIRA_CS}
       - SAFIRA_HOST=${SAFIRA_HOST}
       - DATABASE_URL=postgres://postgres:postgres@database:5432/friday_api
-    build:
-      context: .
-      target: runtime
     depends_on:
       database:
         condition: service_healthy

@@ -11,3 +11,9 @@ default:
 
 run:
     cargo run
+
+build-image:
+    docker build -t ligeronahill/friday_server:latest .
+
+run-compose:
+    docker-compose up -d

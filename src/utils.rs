@@ -411,6 +411,7 @@ enum ProductType {
     Rug,
     Mat,
     Walls,
+    Lvt,
     Other,
 }
 impl From<&ms::Product> for ProductType {
@@ -432,6 +433,7 @@ impl From<&ms::Product> for ProductType {
             "Ковры" => Self::Rug,
             "Циновки" => Self::Mat,
             "Настенные покрытия" => Self::Walls,
+            "Виниловая плитка" => Self::Lvt,
             _ => Self::Other,
         }
     }
@@ -444,6 +446,7 @@ impl Display for ProductType {
             ProductType::Rug => "Ковры",
             ProductType::Mat => "Циновки",
             ProductType::Walls => "Настенные покрытия",
+            ProductType::Lvt => "Виниловая плитка",
             ProductType::Other => "Invalid",
         };
         write!(f, "{s}")
